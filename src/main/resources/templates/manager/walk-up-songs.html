@@ -8,7 +8,7 @@
     <style>
         .song-row {
             display: grid;
-            grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr);
+            grid-template-columns: minmax(180px, 1fr) minmax(280px, 2fr);
             gap: 1rem;
             align-items: start;
         }
@@ -19,11 +19,22 @@
 
         .song-actions {
             display: grid;
-            gap: .75rem;
+            gap: 1rem;
         }
 
         .song-actions form {
             margin: 0;
+        }
+
+        .upload-panel {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: .75rem;
+            background: #fafafa;
+        }
+
+        .upload-panel h3 {
+            margin-top: 0;
         }
 
         .song-preview {
@@ -34,6 +45,32 @@
         .file-path {
             font-size: .85rem;
             word-break: break-all;
+        }
+
+        .status-pill {
+            display: inline-block;
+            padding: .15rem .5rem;
+            border-radius: 999px;
+            font-size: .75rem;
+            font-weight: 800;
+            background: #e5e7eb;
+            color: #374151;
+        }
+
+        .status-pill.ready {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .test-buttons {
+            display: flex;
+            gap: .5rem;
+            flex-wrap: wrap;
+            margin-top: .75rem;
+        }
+
+        .test-buttons button {
+            margin-top: 0;
         }
 
         @media (max-width: 700px) {
@@ -57,60 +94,123 @@
     <div class="error" th:if="${error}" th:text="${error}"></div>
 
     <section class="card hero">
-        <h1>Upload Walk-Up Songs</h1>
+        <h1>Upload Walk-Up Audio</h1>
         <p class="muted">
-            Upload short MP3 clips for players. Files are saved to the Railway volume and served from
-            <strong>/uploads/walkup-songs/</strong> on this same app domain.
+            Upload optional intro MP3s and walk-up song MP3s. During the game, the intro plays first and the walk-up song starts automatically afterward.
+        </p>
+        <p class="muted">
+            Intro files are stored by player ID, so no database migration is required. Walk-up song files are linked to the existing player record.
         </p>
     </section>
 
-    <section class="card" th:each="player : ${players}">
+    <section class="card" th:each="row : ${rows}">
         <div class="song-row">
             <div class="song-meta">
-                <h2 th:text="${player.nickname != null and !player.nickname.isBlank() ? player.nickname : player.name}">Player</h2>
+                <h2 th:text="${row.displayName}">Player</h2>
                 <p>
                     <strong>Full name:</strong>
-                    <span th:text="${player.name}">Player Name</span>
+                    <span th:text="${row.playerName}">Player Name</span>
+                </p>
+                <p>
+                    <strong>Player ID:</strong>
+                    <span th:text="${row.playerId}">1</span>
                 </p>
                 <p>
                     <strong>Requested song:</strong>
-                    <span th:text="${#strings.isEmpty(player.walkUpSongArtist) and #strings.isEmpty(player.walkUpSongTitle) ? 'None entered yet' : ((player.walkUpSongArtist ?: '') + ' - ' + (player.walkUpSongTitle ?: ''))}">
-                        Artist - Title
-                    </span>
-                </p>
-                <p class="file-path" th:if="${player.walkUpSongFilePath != null and !player.walkUpSongFilePath.isBlank()}">
-                    <strong>Current file:</strong>
-                    <a th:href="${player.walkUpSongFilePath}" th:text="${player.walkUpSongFilePath}" target="_blank">/uploads/walkup-songs/file.mp3</a>
-                </p>
-                <p class="muted" th:if="${player.walkUpSongFilePath == null or player.walkUpSongFilePath.isBlank()}">
-                    No MP3 uploaded yet.
+                    <span th:text="${row.requestedSongLabel}">Artist - Title</span>
                 </p>
 
-                <audio class="song-preview"
-                       controls
-                       th:if="${player.walkUpSongFilePath != null and !player.walkUpSongFilePath.isBlank()}">
-                    <source th:src="${player.walkUpSongFilePath}" type="audio/mpeg">
-                    Your browser does not support MP3 playback.
-                </audio>
+                <p>
+                    <strong>Intro:</strong>
+                    <span th:if="${row.introUploaded}" class="status-pill ready">Uploaded</span>
+                    <span th:if="${!row.introUploaded}" class="status-pill">Missing</span>
+                </p>
+                <p class="file-path">
+                    <strong>Intro filename:</strong>
+                    <span th:text="${row.introFilename}">1.mp3</span>
+                    <br>
+                    <a th:if="${row.introUploaded}" th:href="${row.introUrl}" th:text="${row.introUrl}" target="_blank">/uploads/walkup-intros/1.mp3</a>
+                </p>
+
+                <p>
+                    <strong>Walk-up song:</strong>
+                    <span th:if="${row.walkUpSongUploaded}" class="status-pill ready">Uploaded</span>
+                    <span th:if="${!row.walkUpSongUploaded}" class="status-pill">Missing</span>
+                </p>
+                <p class="file-path" th:if="${row.walkUpSongUploaded}">
+                    <strong>Song file:</strong>
+                    <span th:text="${row.walkUpSongFilename}">song.mp3</span>
+                    <br>
+                    <a th:href="${row.walkUpSongUrl}" th:text="${row.walkUpSongUrl}" target="_blank">/uploads/walkup-songs/file.mp3</a>
+                </p>
+
+                <div class="test-buttons">
+                    <button type="button"
+                            data-walkup-play-button
+                            th:disabled="${!row.introUploaded and !row.walkUpSongUploaded}"
+                            th:data-player-id="${row.playerId}"
+                            th:data-player-name="${row.displayName}"
+                            th:data-artist="${row.requestedArtist}"
+                            th:data-title="${row.requestedTitle}"
+                            th:data-intro-url="${row.introUploaded ? row.introUrl : ''}"
+                            th:data-song-url="${row.walkUpSongUploaded ? row.walkUpSongUrl : ''}">
+                        ▶ Test Intro + Song
+                    </button>
+
+                    <button type="button" class="secondary" data-walkup-stop-button>Stop</button>
+                </div>
             </div>
 
             <div class="song-actions">
-                <form th:action="@{/manager/walk-up-songs/{playerId}/upload(playerId=${player.id})}"
-                      method="post"
-                      enctype="multipart/form-data">
-                    <label th:for="${'file-' + player.id}">Upload MP3</label>
-                    <input th:id="${'file-' + player.id}" name="file" type="file" accept="audio/mpeg,.mp3" required>
-                    <button type="submit">Upload / Replace Song</button>
-                </form>
+                <div class="upload-panel">
+                    <h3>Intro MP3</h3>
+                    <p class="muted">
+                        This should be a short intro clip. It will be saved as
+                        <strong th:text="${row.introFilename}">1.mp3</strong>.
+                    </p>
 
-                <form th:if="${player.walkUpSongFilePath != null and !player.walkUpSongFilePath.isBlank()}"
-                      th:action="@{/manager/walk-up-songs/{playerId}/clear(playerId=${player.id})}"
-                      method="post">
-                    <button type="submit" class="danger">Clear Song Link</button>
-                </form>
+                    <form th:action="@{/manager/walk-up-songs/{playerId}/intro/upload(playerId=${row.playerId})}"
+                          method="post"
+                          enctype="multipart/form-data">
+                        <label th:for="${'intro-file-' + row.playerId}">Choose intro MP3</label>
+                        <input th:id="${'intro-file-' + row.playerId}" name="introFile" type="file" accept="audio/mpeg,.mp3" required>
+                        <button type="submit">Upload / Replace Intro</button>
+                    </form>
+
+                    <form th:if="${row.introUploaded}"
+                          th:action="@{/manager/walk-up-songs/{playerId}/intro/clear(playerId=${row.playerId})}"
+                          method="post"
+                          onsubmit="return confirm('Clear this player intro MP3?');">
+                        <button type="submit" class="danger">Clear Intro</button>
+                    </form>
+                </div>
+
+                <div class="upload-panel">
+                    <h3>Walk-Up Song MP3</h3>
+                    <p class="muted">
+                        This should be the music clip that plays after the intro.
+                    </p>
+
+                    <form th:action="@{/manager/walk-up-songs/{playerId}/upload(playerId=${row.playerId})}"
+                          method="post"
+                          enctype="multipart/form-data">
+                        <label th:for="${'song-file-' + row.playerId}">Choose walk-up song MP3</label>
+                        <input th:id="${'song-file-' + row.playerId}" name="file" type="file" accept="audio/mpeg,.mp3" required>
+                        <button type="submit">Upload / Replace Song</button>
+                    </form>
+
+                    <form th:if="${row.walkUpSongUploaded}"
+                          th:action="@{/manager/walk-up-songs/{playerId}/clear(playerId=${row.playerId})}"
+                          method="post"
+                          onsubmit="return confirm('Clear this player walk-up song file?');">
+                        <button type="submit" class="danger">Clear Song</button>
+                    </form>
+                </div>
             </div>
         </div>
     </section>
 </main>
+
+<script th:src="@{/js/walkup-player.js}"></script>
 </body>
 </html>

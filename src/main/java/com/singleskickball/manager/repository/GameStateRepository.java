@@ -8,12 +8,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.Optional;
 
 /**
- * Stores the live state for one game week.
+ * Data access for the live state of a game week.
  *
- * A game state may reference the roster entry for the player currently at bat.
- * Before a roster entry is deleted, services should check whether a game state
- * points at it and clear/update that reference first so the database foreign
- * key is not violated.
+ * The game state stores the currently batting team, current batter, and inning.
+ * Services use findByCurrentBatterRosterEntry before deleting a roster entry so
+ * the foreign-key reference can be cleared or moved safely first.
  */
 public interface GameStateRepository extends JpaRepository<GameState, Long> {
 
