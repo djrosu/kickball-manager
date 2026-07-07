@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Manager Dashboard</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main class="page">
+    <nav class="topbar">
+        <strong>Manager Dashboard</strong>
+        <a th:href="@{/}">Player Home</a>
+    </nav>
+
+    <section class="card hero">
+        <h1 th:text="'Game Week: ' + ${week.gameDate}">Game Week</h1>
+        <form th:action="@{/manager/generate-rosters}" method="post">
+            <button type="submit">Auto Create Rosters</button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Availability</h2>
+        <table>
+            <thead><tr><th>Player</th><th>Status</th></tr></thead>
+            <tbody>
+            <tr th:each="a : ${availability}">
+                <td th:text="${a.player.name}">Player</td>
+                <td th:text="${a.status}">Status</td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section class="card">
+        <h2>Rosters and Scoring</h2>
+        <table>
+            <thead><tr><th>Team</th><th>Order</th><th>Player</th><th>Runs</th><th></th></tr></thead>
+            <tbody>
+            <tr th:each="entry : ${rosterEntries}">
+                <td th:text="${entry.team.color}">Red</td>
+                <td th:text="${entry.battingOrder}">1</td>
+                <td th:text="${entry.player.name}">Player</td>
+                <td th:text="${entry.runsScored}">0</td>
+                <td>
+                    <form th:action="@{/manager/runs/{id}(id=${entry.id})}" method="post">
+                        <button type="submit">+ Run</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+</main>
+</body>
+</html>

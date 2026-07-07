@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Singles, Sports and Social</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main class="page">
+    <nav class="topbar">
+        <strong>Singles, Sports and Social</strong>
+        <span>
+            <a th:if="${player.manager}" th:href="@{/manager}">Manager Dashboard</a>
+            <form th:action="@{/logout}" method="post" class="inline"><button>Logout</button></form>
+        </span>
+    </nav>
+
+    <section class="card hero">
+        <h1 th:text="'Hi, ' + (${player.nickname} ?: ${player.name}) + '!'">Hi!</h1>
+        <p th:text="'Next game: ' + ${#temporals.format(week.gameDate, 'M/d/yyyy')} + ' at ' + ${#temporals.format(week.gameTime, 'h:mm a')}">
+            Next game: 7/7/2026 at 7:00 PM
+        </p>
+    </section>
+
+    <section class="grid">
+        <div class="card">
+            <h2>Are you in this week?</h2>
+
+            <p th:if="${currentAvailability != null}" class="success">
+                Your current response:
+                <strong th:text="${currentAvailability == T(com.singleskickball.manager.model.AvailabilityStatus).IN ? 'I am in' : 'I am out'}">
+                    I am in
+                </strong>
+            </p>
+
+            <p th:if="${currentAvailability == null}" class="muted">
+                You have not responded for this week yet.
+            </p>
+
+            <form th:action="@{/availability}" method="post" class="button-row">
+                <button name="status"
+                        value="IN"
+                        th:text="${currentAvailability == T(com.singleskickball.manager.model.AvailabilityStatus).IN ? 'Selected: I’m In' : 'I’m In'}">
+                    I'm In
+                </button>
+
+                <button name="status"
+                        value="OUT"
+                        class="secondary"
+                        th:text="${currentAvailability == T(com.singleskickball.manager.model.AvailabilityStatus).OUT ? 'Selected: I’m Out' : 'I’m Out'}">
+                    I'm Out
+                </button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>Preferred Teammate</h2>
+
+            <p class="muted">
+                Optional: choose someone you would like to be teamed with.
+                Selections are private. Mutual picks will only be considered by the algorithm during automatic weekly game roster creation.
+            </p>
+
+            <form th:action="@{/preference}" method="post">
+                <select name="preferredPlayerId" required>
+                    <option value="">Choose a player</option>
+                    <option th:each="p : ${players}"
+                            th:if="${p.id != player.id}"
+                            th:value="${p.id}"
+                            th:selected="${preferredPlayerId != null and preferredPlayerId == p.id}"
+                            th:text="${p.name}">
+                    </option>
+                </select>
+                <button type="submit">Save Preference</button>
+            </form>
+
+            <p th:if="${preferredPlayerId != null}" class="success">
+                Preferred teammate saved.
+            </p>
+        </div>
+    </section>
+
+    <section class="grid">
+        <div class="card">
+            <h2>Your Profile</h2>
+            <form th:action="@{/profile}" method="post">
+                <label>Nickname</label>
+                <input name="nickname" th:value="${player.nickname}">
+                <label>Walk-up song artist</label>
+                <input name="walkUpSongArtist" th:value="${player.walkUpSongArtist}">
+                <label>Walk-up song title</label>
+                <input name="walkUpSongTitle" th:value="${player.walkUpSongTitle}">
+                <button type="submit">Save Profile</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>Top Run Leaders</h2>
+            <ol>
+                <li th:each="leader : ${leaders}" th:text="${leader[0]} + ' - ' + ${leader[1]} + ' runs'"></li>
+            </ol>
+            <p th:if="${#lists.isEmpty(leaders)}" class="muted">No runs scored yet.</p>
+        </div>
+    </section>
+</main>
+</body>
+</html>

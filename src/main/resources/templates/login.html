@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kickball Login</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main class="page narrow">
+    <h1>Kickball Manager</h1>
+    <p class="muted">Sign in with your registered player email.</p>
+
+    <form th:action="@{/login}" method="post" class="card">
+        <label>Email</label>
+        <input type="email" name="username" required autofocus>
+
+        <label>Password</label>
+        <input type="password" name="password" required>
+
+        <button type="submit">Sign In</button>
+    </form>
+        <p class="small-link"><a th:href="@{/forgot-password}">Forgot your password?</a></p>
+
+</main>
+</body>
+</html>
