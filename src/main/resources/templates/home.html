@@ -119,7 +119,7 @@
                             th:if="${p.id != player.id}"
                             th:value="${p.id}"
                             th:selected="${preferredPlayerId != null and preferredPlayerId == p.id}"
-                            th:text="${p.name}">
+                            th:text="${p.nickname}">
                     </option>
                 </select>
                 <button type="submit">Save Preference</button>
