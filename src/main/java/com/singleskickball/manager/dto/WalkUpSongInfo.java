@@ -1,11 +1,16 @@
 package com.singleskickball.manager.dto;
 
 /**
- * Lightweight DTO returned to the manager screen when a batter comes up.
+ * Lightweight DTO returned to the manager dashboard when a batter comes up.
  *
- * The browser will use this data to decide whether it can play an uploaded MP3
- * or should simply show the artist/title for the manager to play manually from
- * another source.
+ * The browser uses this object to play two optional audio files in order:
+ *
+ * 1. introAudioUrl - short produced intro clip, named by player id
+ * 2. audioUrl      - player's walk-up song clip stored on the Player row
+ *
+ * Keeping both URLs in this DTO lets the browser play the intro first and then
+ * automatically continue into the walk-up song without adding another database
+ * column while players are already using the production system.
  */
 public class WalkUpSongInfo {
 
@@ -13,8 +18,14 @@ public class WalkUpSongInfo {
     private String playerName;
     private String artist;
     private String title;
+
+    /** Browser URL to the player's walk-up song MP3, if one exists. */
     private String audioUrl;
     private boolean playable;
+
+    /** Browser URL to the player's intro MP3, if one exists. */
+    private String introAudioUrl;
+    private boolean introPlayable;
 
     public Long getPlayerId() { return playerId; }
     public void setPlayerId(Long playerId) { this.playerId = playerId; }
@@ -33,4 +44,10 @@ public class WalkUpSongInfo {
 
     public boolean isPlayable() { return playable; }
     public void setPlayable(boolean playable) { this.playable = playable; }
+
+    public String getIntroAudioUrl() { return introAudioUrl; }
+    public void setIntroAudioUrl(String introAudioUrl) { this.introAudioUrl = introAudioUrl; }
+
+    public boolean isIntroPlayable() { return introPlayable; }
+    public void setIntroPlayable(boolean introPlayable) { this.introPlayable = introPlayable; }
 }

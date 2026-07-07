@@ -1,5 +1,6 @@
 package com.singleskickball.manager.service;
 
+import com.singleskickball.manager.dto.WalkUpSongAdminRow;
 import com.singleskickball.manager.model.Player;
 import com.singleskickball.manager.repository.PlayerRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,17 +15,23 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Locale;
 
 /**
- * Stores uploaded walk-up song MP3 files and links them to players.
+ * Handles manager uploads for intro clips and walk-up song clips.
  *
- * The physical file is stored on the Railway volume. The Player table stores a
- * browser URL path such as:
- *   /uploads/walkup-songs/player-26-20260707-151500.mp3
+ * Storage design:
+ * - Root directory is configurable using APP_UPLOADS_ROOT_PATH.
+ * - Railway production should mount a persistent volume at /app/uploads.
+ * - Intro clips are saved as walkup-intros/{playerId}.mp3.
+ * - Walk-up songs are saved as walkup-songs/player-{id}-{name}-{timestamp}.mp3.
  *
- * Keeping only the URL path in the database makes the code portable: the same
- * value works under the Railway URL and under app.singlessportssocial.com.
+ * Database design:
+ * - Walk-up songs update players.walk_up_song_file_path because the filename is
+ *   generated and may change whenever a manager replaces the song.
+ * - Intro clips do not need a new database column. The app finds them by the
+ *   player-id naming convention.
  */
 @Service
 public class WalkUpSongUploadService {
@@ -41,23 +48,23 @@ public class WalkUpSongUploadService {
     }
 
     /**
-     * Saves an uploaded MP3 file for a player and updates the database field the
-     * manager dashboard already reads when playing walk-up songs.
+     * Builds the manager upload page rows with current intro/song status for
+     * every active player.
+     */
+    public List<WalkUpSongAdminRow> getUploadRows() {
+        return playerRepository.findByActiveTrueOrderByNameAsc()
+                .stream()
+                .map(this::toAdminRow)
+                .toList();
+    }
+
+    /**
+     * Saves an uploaded walk-up song MP3 file for a player and updates that
+     * player's database row so the game dashboard can play it later.
      */
     @Transactional
     public void uploadWalkUpSong(Long playerId, MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Please choose an MP3 file to upload.");
-        }
-
-        String originalFilename = file.getOriginalFilename() == null ? "walkup.mp3" : file.getOriginalFilename();
-        String lowerName = originalFilename.toLowerCase(Locale.ROOT);
-
-        // Keep this intentionally strict for now. We can allow M4A later if we
-        // want, but MP3 gives us the best cross-browser behavior.
-        if (!lowerName.endsWith(".mp3")) {
-            throw new IllegalArgumentException("Only .mp3 files are supported right now.");
-        }
+        validateMp3(file);
 
         Player player = playerRepository.findById(playerId)
                 .orElseThrow(() -> new IllegalArgumentException("Player not found."));
@@ -65,36 +72,106 @@ public class WalkUpSongUploadService {
         Path walkupDirectory = uploadRoot.resolve("walkup-songs").normalize();
         ensureDirectoryExists(walkupDirectory);
 
-        String safeFilename = buildSafeFilename(player, originalFilename);
+        String safeFilename = buildSafeWalkUpFilename(player);
         Path targetFile = walkupDirectory.resolve(safeFilename).normalize();
+        ensureTargetWithinDirectory(targetFile, walkupDirectory);
 
-        // Protect against path traversal even though we generate the target name
-        // ourselves. This keeps the method safe if it is changed later.
-        if (!targetFile.startsWith(walkupDirectory)) {
-            throw new IllegalArgumentException("Invalid upload file path.");
-        }
-
-        try (InputStream inputStream = file.getInputStream()) {
-            Files.copy(inputStream, targetFile, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException ex) {
-            throw new IllegalStateException("Unable to save uploaded MP3 file.", ex);
-        }
+        copyUpload(file, targetFile);
 
         player.setWalkUpSongFilePath("/uploads/walkup-songs/" + safeFilename);
         playerRepository.save(player);
     }
 
     /**
-     * Clears only the file link. Artist/title remain because players may have
-     * already entered those values and we do not want to overwrite them.
+     * Saves a player intro MP3 using the player-id convention.
+     *
+     * Example:
+     *   Player id 26 -> /app/uploads/walkup-intros/26.mp3
+     */
+    public void uploadIntro(Long playerId, MultipartFile file) {
+        validateMp3(file);
+
+        playerRepository.findById(playerId)
+                .orElseThrow(() -> new IllegalArgumentException("Player not found."));
+
+        Path introDirectory = uploadRoot.resolve("walkup-intros").normalize();
+        ensureDirectoryExists(introDirectory);
+
+        Path targetFile = introDirectory.resolve(playerId + ".mp3").normalize();
+        ensureTargetWithinDirectory(targetFile, introDirectory);
+
+        copyUpload(file, targetFile);
+    }
+
+    /**
+     * Clears the walk-up song database link. If the linked file is one of our
+     * managed upload files, we also attempt to delete it to avoid clutter.
      */
     @Transactional
     public void clearWalkUpSongFile(Long playerId) {
         Player player = playerRepository.findById(playerId)
                 .orElseThrow(() -> new IllegalArgumentException("Player not found."));
 
+        deleteManagedWalkUpFileIfPresent(player.getWalkUpSongFilePath());
         player.setWalkUpSongFilePath(null);
         playerRepository.save(player);
+    }
+
+    /**
+     * Deletes the convention-based intro MP3 if it exists.
+     */
+    public void clearIntro(Long playerId) {
+        playerRepository.findById(playerId)
+                .orElseThrow(() -> new IllegalArgumentException("Player not found."));
+
+        Path introFile = uploadRoot
+                .resolve("walkup-intros")
+                .resolve(playerId + ".mp3")
+                .normalize();
+
+        try {
+            Files.deleteIfExists(introFile);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Unable to delete intro MP3 file.", ex);
+        }
+    }
+
+    private WalkUpSongAdminRow toAdminRow(Player player) {
+        WalkUpSongAdminRow row = new WalkUpSongAdminRow();
+        row.setPlayerId(player.getId());
+        row.setPlayerName(player.getName());
+        row.setDisplayName(displayName(player));
+        row.setRequestedArtist(player.getWalkUpSongArtist());
+        row.setRequestedTitle(player.getWalkUpSongTitle());
+        row.setRequestedSongLabel(requestedSongLabel(player));
+
+        String introFilename = player.getId() + ".mp3";
+        Path introPath = uploadRoot.resolve("walkup-intros").resolve(introFilename).normalize();
+        boolean introExists = Files.exists(introPath) && Files.isRegularFile(introPath);
+        row.setIntroFilename(introFilename);
+        row.setIntroUploaded(introExists);
+        row.setIntroUrl(introExists ? "/uploads/walkup-intros/" + introFilename : null);
+
+        String walkUpPath = player.getWalkUpSongFilePath();
+        boolean hasWalkUp = walkUpPath != null && !walkUpPath.isBlank();
+        row.setWalkUpSongUploaded(hasWalkUp);
+        row.setWalkUpSongUrl(hasWalkUp ? toBrowserUrl(walkUpPath) : null);
+        row.setWalkUpSongFilename(hasWalkUp ? filenameFromPath(walkUpPath) : null);
+
+        return row;
+    }
+
+    private void validateMp3(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Please choose an MP3 file to upload.");
+        }
+
+        String originalFilename = file.getOriginalFilename() == null ? "audio.mp3" : file.getOriginalFilename();
+        String lowerName = originalFilename.toLowerCase(Locale.ROOT);
+
+        if (!lowerName.endsWith(".mp3")) {
+            throw new IllegalArgumentException("Only .mp3 files are supported right now.");
+        }
     }
 
     private void ensureDirectoryExists(Path directory) {
@@ -105,13 +182,44 @@ public class WalkUpSongUploadService {
         }
     }
 
-    private String buildSafeFilename(Player player, String originalFilename) {
-        String timestamp = LocalDateTime.now().format(FILE_TIMESTAMP);
-        String displayName = player.getNickname() != null && !player.getNickname().isBlank()
-                ? player.getNickname()
-                : player.getName();
+    private void ensureTargetWithinDirectory(Path targetFile, Path directory) {
+        if (!targetFile.startsWith(directory)) {
+            throw new IllegalArgumentException("Invalid upload file path.");
+        }
+    }
 
-        String safePlayerName = displayName.toLowerCase(Locale.ROOT)
+    private void copyUpload(MultipartFile file, Path targetFile) {
+        try (InputStream inputStream = file.getInputStream()) {
+            Files.copy(inputStream, targetFile, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Unable to save uploaded MP3 file.", ex);
+        }
+    }
+
+    private void deleteManagedWalkUpFileIfPresent(String browserPath) {
+        if (browserPath == null || !browserPath.startsWith("/uploads/walkup-songs/")) {
+            return;
+        }
+
+        String filename = browserPath.substring("/uploads/walkup-songs/".length());
+        Path file = uploadRoot.resolve("walkup-songs").resolve(filename).normalize();
+        Path directory = uploadRoot.resolve("walkup-songs").normalize();
+
+        if (!file.startsWith(directory)) {
+            return;
+        }
+
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException ignored) {
+            // Clearing the DB link is more important than failing the request
+            // because an old file could not be removed.
+        }
+    }
+
+    private String buildSafeWalkUpFilename(Player player) {
+        String timestamp = LocalDateTime.now().format(FILE_TIMESTAMP);
+        String safePlayerName = displayName(player).toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9]+", "-")
                 .replaceAll("(^-|-$)", "");
 
@@ -119,7 +227,41 @@ public class WalkUpSongUploadService {
             safePlayerName = "player";
         }
 
-        // The original extension was already validated to be .mp3.
         return "player-" + player.getId() + "-" + safePlayerName + "-" + timestamp + ".mp3";
+    }
+
+    private String displayName(Player player) {
+        return player.getNickname() != null && !player.getNickname().isBlank()
+                ? player.getNickname()
+                : player.getName();
+    }
+
+    private String requestedSongLabel(Player player) {
+        String artist = player.getWalkUpSongArtist();
+        String title = player.getWalkUpSongTitle();
+
+        boolean hasArtist = artist != null && !artist.isBlank();
+        boolean hasTitle = title != null && !title.isBlank();
+
+        if (!hasArtist && !hasTitle) {
+            return "None entered yet";
+        }
+        if (hasArtist && hasTitle) {
+            return artist + " - " + title;
+        }
+        return hasArtist ? artist : title;
+    }
+
+    private String toBrowserUrl(String filePath) {
+        if (filePath.startsWith("http://") || filePath.startsWith("https://") || filePath.startsWith("/")) {
+            return filePath;
+        }
+        return "/uploads/walkup-songs/" + filePath;
+    }
+
+    private String filenameFromPath(String filePath) {
+        String normalized = filePath.replace('\\', '/');
+        int lastSlash = normalized.lastIndexOf('/');
+        return lastSlash >= 0 ? normalized.substring(lastSlash + 1) : normalized;
     }
 }

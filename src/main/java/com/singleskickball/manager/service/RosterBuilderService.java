@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 @Service
 public class RosterBuilderService {
 
-    private static final List<String> DEFAULT_TEAM_COLORS = List.of("Red", "Yellow");
+    private static final List<String> DEFAULT_TEAM_COLORS = List.of("Yellow", "Red");
 
     private final PlayerAvailabilityRepository availabilityRepository;
     private final PlayerPreferenceRepository preferenceRepository;

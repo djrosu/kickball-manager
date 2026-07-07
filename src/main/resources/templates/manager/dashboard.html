@@ -3,17 +3,124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="_csrf" th:content="${_csrf.token}">
+    <meta name="_csrf_header" th:content="${_csrf.headerName}">
     <title>Manager Dashboard | Singles, Sports and Social</title>
     <link rel="stylesheet" th:href="@{/css/app.css}">
+    <style>
+        .manager-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .manager-nav-actions {
+            display: flex;
+            gap: .75rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .audio-panel {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: .75rem;
+            background: #fafafa;
+            margin-top: .75rem;
+        }
+
+        .audio-status {
+            margin-top: .75rem;
+            font-size: .9rem;
+            color: var(--muted);
+        }
+
+        .team-card h2 {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: .75rem;
+        }
+
+        .lineup-row.current-batter {
+            background: #fff7ed;
+        }
+
+        .lineup-player-name {
+            font-weight: 700;
+        }
+
+        .lineup-details {
+            color: var(--muted);
+            font-size: .9rem;
+        }
+
+        .lineup-actions {
+            display: flex;
+            gap: .35rem;
+            flex-wrap: wrap;
+        }
+
+        .lineup-actions form,
+        .lineup-actions button {
+            margin-top: 0;
+        }
+
+        .lineup-actions button {
+            padding: .45rem .65rem;
+        }
+
+        .add-player-form {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        @media (max-width: 700px) {
+            .manager-nav {
+                align-items: flex-start;
+            }
+
+            .manager-nav-actions {
+                flex-direction: column;
+                align-items: flex-end;
+            }
+
+            table,
+            thead,
+            tbody,
+            tr,
+            th,
+            td {
+                display: block;
+            }
+
+            thead {
+                display: none;
+            }
+
+            td {
+                border-bottom: 0;
+                padding: .35rem 0;
+            }
+
+            tr {
+                border-bottom: 1px solid var(--border);
+                padding: .75rem 0;
+            }
+        }
+    </style>
 </head>
 <body>
 <main class="page">
-    <nav class="topbar">
+    <nav class="manager-nav">
         <strong>Manager Dashboard</strong>
-        <span>
+        <div class="manager-nav-actions">
             <a th:href="@{/manager/walk-up-songs}">Walk-Up Songs</a>
             <a th:href="@{/}">Player Home</a>
-        </span>
+        </div>
     </nav>
 
     <div class="success" th:if="${message}" th:text="${message}"></div>
@@ -24,19 +131,20 @@
             Game Week
         </h1>
         <p class="muted">
-            Use this page to create rosters, adjust batting order, track runs, and progress through the game.
+            Use this page to create rosters, adjust batting order, track runs, progress through the game,
+            and play walk-up audio.
         </p>
 
         <div class="button-row">
-            <!--
-                Auto create should not be run once live game state exists.
-                Managers can still manually add/remove players and adjust batting order;
-                only the automatic roster regeneration action is disabled.
-            -->
             <form th:action="@{/manager/generate-rosters}" method="post">
+                <!--
+                    Only automatic roster creation is disabled after the live
+                    game starts. Manual roster edits and batting-order changes
+                    remain available below.
+                -->
                 <button type="submit"
                         th:disabled="${gameState != null}"
-                        th:title="${gameState != null ? 'Auto create is disabled after the game starts. Managers can still manually add/remove players and adjust batting order.' : 'Create balanced rosters from available players.'}">
+                        th:title="${gameState != null ? 'Auto create is disabled after the game starts. Managers can still manually edit rosters.' : 'Create balanced rosters from available players.'}">
                     <span th:if="${gameState == null}">Auto Create Rosters</span>
                     <span th:if="${gameState != null}">Auto Create Disabled</span>
                 </button>
@@ -68,13 +176,16 @@
                 </tr>
                 </tbody>
             </table>
+            <p th:if="${#lists.isEmpty(scores)}" class="muted">No teams have been created yet.</p>
         </div>
 
         <div class="card">
             <h2>Current At-Bat</h2>
+
             <div th:if="${gameState == null}">
                 <p class="muted">Game has not been started yet.</p>
             </div>
+
             <div th:if="${gameState != null}">
                 <p>
                     <strong>Inning:</strong>
@@ -86,24 +197,57 @@
                 </p>
                 <p>
                     <strong>Current Batter:</strong>
-                    <span th:text="${gameState.currentBatterRosterEntry != null ? gameState.currentBatterRosterEntry.player.name : 'None'}">Player</span>
+                    <span id="current-batter-name"
+                          th:text="${gameState.currentBatterRosterEntry != null ? (gameState.currentBatterRosterEntry.player.nickname ?: gameState.currentBatterRosterEntry.player.name) : 'None'}">
+                        Player
+                    </span>
                 </p>
+                <p>
+                    <strong>Song:</strong>
+                    <span id="current-batter-song"
+                          th:text="${currentWalkUpSong != null ? ((currentWalkUpSong.artist ?: '') + (#strings.isEmpty(currentWalkUpSong.artist) or #strings.isEmpty(currentWalkUpSong.title) ? '' : ' - ') + (currentWalkUpSong.title ?: '')) : 'No song entered'}">
+                        Artist - Title
+                    </span>
+                </p>
+
+                <div class="audio-panel">
+                    <div class="button-row">
+                        <button id="play-current-batter-audio"
+                                type="button"
+                                data-walkup-play-button
+                                data-status-target="#walkup-status"
+                                th:disabled="${currentWalkUpSong == null or (!currentWalkUpSong.introPlayable and !currentWalkUpSong.playable)}"
+                                th:data-player-id="${currentWalkUpSong != null ? currentWalkUpSong.playerId : ''}"
+                                th:data-player-name="${currentWalkUpSong != null ? currentWalkUpSong.playerName : ''}"
+                                th:data-artist="${currentWalkUpSong != null ? currentWalkUpSong.artist : ''}"
+                                th:data-title="${currentWalkUpSong != null ? currentWalkUpSong.title : ''}"
+                                th:data-intro-url="${currentWalkUpSong != null and currentWalkUpSong.introPlayable ? currentWalkUpSong.introAudioUrl : ''}"
+                                th:data-song-url="${currentWalkUpSong != null and currentWalkUpSong.playable ? currentWalkUpSong.audioUrl : ''}">
+                            ▶ Play Current Batter Audio
+                        </button>
+
+                        <button type="button"
+                                class="secondary"
+                                data-walkup-stop-button
+                                data-status-target="#walkup-status">
+                            Stop Audio
+                        </button>
+                    </div>
+
+                    <p id="walkup-status" class="audio-status">
+                        Tap Play Current Batter Audio, or tap Next Batter to advance and play the next batter's intro and walk-up song.
+                    </p>
+                </div>
+
                 <div class="button-row">
-                    <form th:action="@{/manager/game/next-batter}" method="post">
+                    <form th:action="@{/manager/game/next-batter-info}" method="post" data-next-batter-form>
                         <button type="submit">Next Batter</button>
                     </form>
+
                     <form th:action="@{/manager/game/end-at-bat}" method="post">
                         <button type="submit" class="secondary">End At-Bat / Switch Teams</button>
                     </form>
-                    <button type="button"
-                            th:if="${gameState.currentBatterRosterEntry != null}"
-                            th:attr="data-entry-id=${gameState.currentBatterRosterEntry.id}"
-                            onclick="playWalkUpSong(this)">
-                        Play Walk-Up Song
-                    </button>
                 </div>
-                <p id="walk-up-status" class="muted"></p>
-                <audio id="walk-up-audio" controls style="width:100%; display:none;"></audio>
             </div>
         </div>
     </section>
@@ -111,133 +255,82 @@
     <section class="card">
         <h2>Availability</h2>
         <table>
-            <thead><tr><th>Player</th><th>Status</th></tr></thead>
+            <thead>
+            <tr><th>Player</th><th>Status</th></tr>
+            </thead>
             <tbody>
             <tr th:each="a : ${availability}">
                 <td th:text="${a.player.name}">Player</td>
-                <td th:text="${a.status}">Status</td>
+                <td th:text="${a.status}">IN</td>
             </tr>
             </tbody>
         </table>
+        <p th:if="${#lists.isEmpty(availability)}" class="muted">No players have marked availability yet.</p>
     </section>
 
     <section class="grid">
-        <div class="card" th:each="team : ${teams}">
-            <h2 th:text="${team.color} + ' Team'">Red Team</h2>
-
-            <form th:action="@{/manager/teams/{teamId}/add-player(teamId=${team.id})}" method="post">
-                <label>Add player manually</label>
-                <select name="playerId" required>
-                    <option value="">Choose a player</option>
-                    <option th:each="p : ${players}" th:value="${p.id}" th:text="${p.name}"></option>
-                </select>
-                <button type="submit">Add Player</button>
-            </form>
+        <div class="card team-card" th:each="team : ${teams}">
+            <h2>
+                <span th:text="${team.color} + ' Team'">Red Team</span>
+            </h2>
 
             <table>
                 <thead>
-                <tr><th>Order</th><th>Player</th><th>Runs</th><th>Actions</th></tr>
+                <tr>
+                    <th>Order</th>
+                    <th>Player</th>
+                    <th>Runs</th>
+                    <th>Actions</th>
+                </tr>
                 </thead>
                 <tbody>
                 <tr th:each="entry : ${rosterEntries}"
                     th:if="${entry.team.id == team.id}"
-                    th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id} ? 'current-batter' : ''">
+                    th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? 'current-batter lineup-row' : 'lineup-row'}">
                     <td th:text="${entry.battingOrder}">1</td>
                     <td>
-                        <span th:text="${entry.player.name}">Player</span>
-                        <span class="badge" th:if="${entry.player.manager}">Manager</span>
+                        <div class="lineup-player-name" th:text="${entry.player.nickname ?: entry.player.name}">Player</div>
+                        <div class="lineup-details" th:text="${entry.player.name}">Full Name</div>
                     </td>
                     <td th:text="${entry.runsScored}">0</td>
                     <td>
-                        <div class="button-row compact-actions">
-                            <form th:action="@{/manager/runs/{id}(id=${entry.id})}" method="post">
-                                <button type="submit">+ Run</button>
-                            </form>
+                        <div class="lineup-actions">
                             <form th:action="@{/manager/lineup/{id}/up(id=${entry.id})}" method="post">
                                 <button type="submit" class="secondary">↑</button>
                             </form>
+
                             <form th:action="@{/manager/lineup/{id}/down(id=${entry.id})}" method="post">
                                 <button type="submit" class="secondary">↓</button>
                             </form>
 
-                            <!--
-                                Confirmation is handled both by the form submit handler and the
-                                button click handler below. This makes the confirmation reliable on
-                                desktop and mobile browsers, including accidental taps on phones.
-                            -->
+                            <form th:action="@{/manager/runs/{id}(id=${entry.id})}" method="post">
+                                <button type="submit">+ Run</button>
+                            </form>
+
                             <form th:action="@{/manager/roster/{id}/remove(id=${entry.id})}"
                                   method="post"
                                   class="confirm-remove-player-form"
-                                  th:attr="data-player-name=${entry.player.name}">
-                                <button type="submit" class="danger remove-player-button">Remove</button>
+                                  th:data-player-name="${entry.player.nickname ?: entry.player.name}">
+                                <button type="submit" class="danger">Remove</button>
                             </form>
-
-                            <button type="button" th:attr="data-entry-id=${entry.id}" onclick="playWalkUpSong(this)">
-                                Song
-                            </button>
                         </div>
                     </td>
                 </tr>
                 </tbody>
             </table>
+
+            <form class="add-player-form" th:action="@{/manager/teams/{teamId}/add-player(teamId=${team.id})}" method="post">
+                <label th:for="${'add-player-' + team.id}">Add player to this team</label>
+                <select th:id="${'add-player-' + team.id}" name="playerId" required>
+                    <option value="">Choose a player</option>
+                    <option th:each="p : ${players}" th:value="${p.id}" th:text="${p.name}"></option>
+                </select>
+                <button type="submit">Add Player</button>
+            </form>
         </div>
     </section>
 </main>
 
-<script>
-    /**
-     * Fetches walk-up song data for a roster entry and plays the MP3 when one
-     * has been linked. If no MP3 exists yet, the manager still sees the saved
-     * artist/title so it can be played manually.
-     */
-    async function playWalkUpSong(button) {
-        const entryId = button.getAttribute('data-entry-id');
-        const status = document.getElementById('walk-up-status');
-        const audio = document.getElementById('walk-up-audio');
-
-        if (!entryId) {
-            return;
-        }
-
-        const response = await fetch('/manager/walk-up/' + entryId);
-        const song = await response.json();
-        const description = [song.artist, song.title].filter(Boolean).join(' - ');
-
-        if (song.playable && song.audioUrl) {
-            audio.src = song.audioUrl;
-            audio.style.display = 'block';
-            status.textContent = 'Playing walk-up song for ' + song.playerName + ': ' + (description || song.audioUrl);
-            await audio.play();
-        } else {
-            audio.pause();
-            audio.removeAttribute('src');
-            audio.style.display = 'none';
-            status.textContent = song.playerName + ' walk-up song: ' + (description || 'No song selected yet.');
-        }
-    }
-
-    /**
-     * Returns true only when the manager confirms the roster removal.
-     */
-    function confirmRemovePlayer(playerName) {
-        return window.confirm('Remove ' + playerName + ' from this team roster?');
-    }
-
-    /**
-     * Attach confirmation behavior after the page loads instead of relying only
-     * on inline Thymeleaf attributes. This makes the behavior easier to verify
-     * and avoids accidental template escaping issues.
-     */
-    document.addEventListener('DOMContentLoaded', function () {
-        document.querySelectorAll('.confirm-remove-player-form').forEach(function (form) {
-            form.addEventListener('submit', function (event) {
-                const playerName = form.getAttribute('data-player-name') || 'this player';
-                if (!confirmRemovePlayer(playerName)) {
-                    event.preventDefault();
-                }
-            });
-        });
-    });
-</script>
+<script th:src="@{/js/walkup-player.js}"></script>
 </body>
 </html>
