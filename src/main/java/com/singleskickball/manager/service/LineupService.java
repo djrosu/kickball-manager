@@ -1,18 +1,26 @@
 package com.singleskickball.manager.service;
 
-import com.singleskickball.manager.model.*;
-import com.singleskickball.manager.repository.*;
+import com.singleskickball.manager.model.GameState;
+import com.singleskickball.manager.model.GameWeek;
+import com.singleskickball.manager.model.Player;
+import com.singleskickball.manager.model.Team;
+import com.singleskickball.manager.model.TeamRosterEntry;
+import com.singleskickball.manager.repository.GameStateRepository;
+import com.singleskickball.manager.repository.PlayerRepository;
+import com.singleskickball.manager.repository.TeamRepository;
+import com.singleskickball.manager.repository.TeamRosterEntryRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Handles manual roster and batting-order changes.
  *
- * Team managers will use these actions after auto-roster generation to tweak
- * the batting order, remove someone who did not show up, or add a late arrival.
+ * Team managers use these actions after auto-roster generation to tweak the
+ * batting order, remove someone who did not show up, or add a late arrival.
  */
 @Service
 public class LineupService {
@@ -20,13 +28,16 @@ public class LineupService {
     private final PlayerRepository playerRepository;
     private final TeamRepository teamRepository;
     private final TeamRosterEntryRepository rosterEntryRepository;
+    private final GameStateRepository gameStateRepository;
 
     public LineupService(PlayerRepository playerRepository,
                          TeamRepository teamRepository,
-                         TeamRosterEntryRepository rosterEntryRepository) {
+                         TeamRosterEntryRepository rosterEntryRepository,
+                         GameStateRepository gameStateRepository) {
         this.playerRepository = playerRepository;
         this.teamRepository = teamRepository;
         this.rosterEntryRepository = rosterEntryRepository;
+        this.gameStateRepository = gameStateRepository;
     }
 
     public List<TeamRosterEntry> getLineup(Team team) {
@@ -53,12 +64,49 @@ public class LineupService {
         }
     }
 
+    /**
+     * Removes a player from the weekly roster.
+     *
+     * Important:
+     * The live game state may currently point at the roster entry being removed
+     * through game_state.current_batter_roster_entry_id. If we delete the roster
+     * entry first, the database rejects the delete because of that foreign key.
+     *
+     * To keep the game usable, this method:
+     * 1. finds whether the removed entry is the current batter,
+     * 2. clears that game-state reference before deleting,
+     * 3. deletes the roster entry,
+     * 4. normalizes the remaining batting order,
+     * 5. chooses the next logical batter on the same team when possible.
+     */
     @Transactional
     public void removeFromRoster(Long rosterEntryId) {
         TeamRosterEntry entry = getRosterEntry(rosterEntryId);
         Team team = entry.getTeam();
+
+        List<TeamRosterEntry> lineupBeforeDelete = getNormalizedLineup(team);
+        int removedIndex = findEntryIndex(lineupBeforeDelete, entry);
+
+        GameState affectedGameState = gameStateRepository
+                .findByCurrentBatterRosterEntry(entry)
+                .orElse(null);
+
+        if (affectedGameState != null) {
+            // Break the FK relationship before deleting the roster entry.
+            affectedGameState.setCurrentBatterRosterEntry(null);
+            gameStateRepository.saveAndFlush(affectedGameState);
+        }
+
         rosterEntryRepository.delete(entry);
+        rosterEntryRepository.flush();
+
         normalizeBattingOrder(team);
+
+        if (affectedGameState != null && isCurrentBattingTeam(affectedGameState, team)) {
+            TeamRosterEntry nextBatter = chooseNextBatterAfterRemoval(team, removedIndex);
+            affectedGameState.setCurrentBatterRosterEntry(nextBatter);
+            gameStateRepository.save(affectedGameState);
+        }
     }
 
     @Transactional
@@ -120,5 +168,33 @@ public class LineupService {
                 rosterEntryRepository.save(entry);
             }
         }
+    }
+
+    private int findEntryIndex(List<TeamRosterEntry> lineup, TeamRosterEntry entry) {
+        for (int i = 0; i < lineup.size(); i++) {
+            if (Objects.equals(lineup.get(i).getId(), entry.getId())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isCurrentBattingTeam(GameState gameState, Team team) {
+        return gameState.getCurrentBattingTeam() != null
+                && team != null
+                && Objects.equals(gameState.getCurrentBattingTeam().getId(), team.getId());
+    }
+
+    private TeamRosterEntry chooseNextBatterAfterRemoval(Team team, int removedIndex) {
+        List<TeamRosterEntry> remainingLineup = rosterEntryRepository.findByTeamOrderByBattingOrderAsc(team);
+        if (remainingLineup.isEmpty()) {
+            return null;
+        }
+
+        if (removedIndex < 0 || removedIndex >= remainingLineup.size()) {
+            return remainingLineup.get(0);
+        }
+
+        return remainingLineup.get(removedIndex);
     }
 }

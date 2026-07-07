@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Walk-Up Songs | Singles, Sports and Social</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <style>
+        .song-row {
+            display: grid;
+            grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr);
+            gap: 1rem;
+            align-items: start;
+        }
+
+        .song-meta p {
+            margin: .25rem 0;
+        }
+
+        .song-actions {
+            display: grid;
+            gap: .75rem;
+        }
+
+        .song-actions form {
+            margin: 0;
+        }
+
+        .song-preview {
+            width: 100%;
+            margin-top: .5rem;
+        }
+
+        .file-path {
+            font-size: .85rem;
+            word-break: break-all;
+        }
+
+        @media (max-width: 700px) {
+            .song-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<main class="page">
+    <nav class="topbar">
+        <strong>Walk-Up Songs</strong>
+        <span>
+            <a th:href="@{/manager}">Manager Dashboard</a>
+            <a th:href="@{/}">Player Home</a>
+        </span>
+    </nav>
+
+    <div class="success" th:if="${message}" th:text="${message}"></div>
+    <div class="error" th:if="${error}" th:text="${error}"></div>
+
+    <section class="card hero">
+        <h1>Upload Walk-Up Songs</h1>
+        <p class="muted">
+            Upload short MP3 clips for players. Files are saved to the Railway volume and served from
+            <strong>/uploads/walkup-songs/</strong> on this same app domain.
+        </p>
+    </section>
+
+    <section class="card" th:each="player : ${players}">
+        <div class="song-row">
+            <div class="song-meta">
+                <h2 th:text="${player.nickname != null and !player.nickname.isBlank() ? player.nickname : player.name}">Player</h2>
+                <p>
+                    <strong>Full name:</strong>
+                    <span th:text="${player.name}">Player Name</span>
+                </p>
+                <p>
+                    <strong>Requested song:</strong>
+                    <span th:text="${#strings.isEmpty(player.walkUpSongArtist) and #strings.isEmpty(player.walkUpSongTitle) ? 'None entered yet' : ((player.walkUpSongArtist ?: '') + ' - ' + (player.walkUpSongTitle ?: ''))}">
+                        Artist - Title
+                    </span>
+                </p>
+                <p class="file-path" th:if="${player.walkUpSongFilePath != null and !player.walkUpSongFilePath.isBlank()}">
+                    <strong>Current file:</strong>
+                    <a th:href="${player.walkUpSongFilePath}" th:text="${player.walkUpSongFilePath}" target="_blank">/uploads/walkup-songs/file.mp3</a>
+                </p>
+                <p class="muted" th:if="${player.walkUpSongFilePath == null or player.walkUpSongFilePath.isBlank()}">
+                    No MP3 uploaded yet.
+                </p>
+
+                <audio class="song-preview"
+                       controls
+                       th:if="${player.walkUpSongFilePath != null and !player.walkUpSongFilePath.isBlank()}">
+                    <source th:src="${player.walkUpSongFilePath}" type="audio/mpeg">
+                    Your browser does not support MP3 playback.
+                </audio>
+            </div>
+
+            <div class="song-actions">
+                <form th:action="@{/manager/walk-up-songs/{playerId}/upload(playerId=${player.id})}"
+                      method="post"
+                      enctype="multipart/form-data">
+                    <label th:for="${'file-' + player.id}">Upload MP3</label>
+                    <input th:id="${'file-' + player.id}" name="file" type="file" accept="audio/mpeg,.mp3" required>
+                    <button type="submit">Upload / Replace Song</button>
+                </form>
+
+                <form th:if="${player.walkUpSongFilePath != null and !player.walkUpSongFilePath.isBlank()}"
+                      th:action="@{/manager/walk-up-songs/{playerId}/clear(playerId=${player.id})}"
+                      method="post">
+                    <button type="submit" class="danger">Clear Song Link</button>
+                </form>
+            </div>
+        </div>
+    </section>
+</main>
+</body>
+</html>

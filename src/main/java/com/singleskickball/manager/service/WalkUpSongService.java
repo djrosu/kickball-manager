@@ -10,9 +10,9 @@ import org.springframework.stereotype.Service;
  * Provides walk-up song metadata for the manager screen.
  *
  * Browser limitation:
- * Mobile Safari and most modern browsers usually require a user gesture before
- * audio can play. That means we should design the UI around a manager tapping a
- * "Play Walk-Up Song" button rather than expecting true automatic playback.
+ * Mobile Safari and most modern browsers require a user gesture before audio can
+ * play. The manager dashboard therefore uses a visible "Play Walk-Up Song"
+ * button rather than relying on true autoplay.
  */
 @Service
 public class WalkUpSongService {
@@ -48,17 +48,17 @@ public class WalkUpSongService {
     }
 
     /**
-     * Converts the stored file path into something the browser can request.
+     * Converts the stored file path into a browser URL.
      *
      * Supported examples:
-     * - https://example.com/song.mp3      -> returned as-is
-     * - /walkup-songs/song.mp3           -> returned as-is
-     * - song.mp3                         -> /walkup-songs/song.mp3
+     * - https://example.com/song.mp3                         -> returned as-is
+     * - /uploads/walkup-songs/player-26-diesel.mp3          -> returned as-is
+     * - player-26-diesel.mp3                                -> /uploads/walkup-songs/player-26-diesel.mp3
      */
     private String toBrowserUrl(String filePath) {
         if (filePath.startsWith("http://") || filePath.startsWith("https://") || filePath.startsWith("/")) {
             return filePath;
         }
-        return "/walkup-songs/" + filePath;
+        return "/uploads/walkup-songs/" + filePath;
     }
 }

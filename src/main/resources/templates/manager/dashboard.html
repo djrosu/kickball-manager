@@ -10,7 +10,10 @@
 <main class="page">
     <nav class="topbar">
         <strong>Manager Dashboard</strong>
-        <a th:href="@{/}">Player Home</a>
+        <span>
+            <a th:href="@{/manager/walk-up-songs}">Walk-Up Songs</a>
+            <a th:href="@{/}">Player Home</a>
+        </span>
     </nav>
 
     <div class="success" th:if="${message}" th:text="${message}"></div>
@@ -23,12 +26,30 @@
         <p class="muted">
             Use this page to create rosters, adjust batting order, track runs, and progress through the game.
         </p>
+
         <div class="button-row">
+            <!--
+                Auto create should not be run once live game state exists.
+                Managers can still manually add/remove players and adjust batting order;
+                only the automatic roster regeneration action is disabled.
+            -->
             <form th:action="@{/manager/generate-rosters}" method="post">
-                <button type="submit">Auto Create Rosters</button>
+                <button type="submit"
+                        th:disabled="${gameState != null}"
+                        th:title="${gameState != null ? 'Auto create is disabled after the game starts. Managers can still manually add/remove players and adjust batting order.' : 'Create balanced rosters from available players.'}">
+                    <span th:if="${gameState == null}">Auto Create Rosters</span>
+                    <span th:if="${gameState != null}">Auto Create Disabled</span>
+                </button>
             </form>
+
             <form th:action="@{/manager/game/start}" method="post">
-                <button type="submit" class="secondary">Start Game</button>
+                <button type="submit"
+                        class="secondary"
+                        th:disabled="${gameState != null}"
+                        th:title="${gameState != null ? 'Game is already running.' : 'Start live game tracking.'}">
+                    <span th:if="${gameState == null}">Start Game</span>
+                    <span th:if="${gameState != null}">Game Running</span>
+                </button>
             </form>
         </div>
     </section>
@@ -138,9 +159,19 @@
                             <form th:action="@{/manager/lineup/{id}/down(id=${entry.id})}" method="post">
                                 <button type="submit" class="secondary">↓</button>
                             </form>
-                            <form th:action="@{/manager/roster/{id}/remove(id=${entry.id})}" method="post">
-                                <button type="submit" class="danger">Remove</button>
+
+                            <!--
+                                Confirmation is handled both by the form submit handler and the
+                                button click handler below. This makes the confirmation reliable on
+                                desktop and mobile browsers, including accidental taps on phones.
+                            -->
+                            <form th:action="@{/manager/roster/{id}/remove(id=${entry.id})}"
+                                  method="post"
+                                  class="confirm-remove-player-form"
+                                  th:attr="data-player-name=${entry.player.name}">
+                                <button type="submit" class="danger remove-player-button">Remove</button>
                             </form>
+
                             <button type="button" th:attr="data-entry-id=${entry.id}" onclick="playWalkUpSong(this)">
                                 Song
                             </button>
@@ -184,6 +215,29 @@
             status.textContent = song.playerName + ' walk-up song: ' + (description || 'No song selected yet.');
         }
     }
+
+    /**
+     * Returns true only when the manager confirms the roster removal.
+     */
+    function confirmRemovePlayer(playerName) {
+        return window.confirm('Remove ' + playerName + ' from this team roster?');
+    }
+
+    /**
+     * Attach confirmation behavior after the page loads instead of relying only
+     * on inline Thymeleaf attributes. This makes the behavior easier to verify
+     * and avoids accidental template escaping issues.
+     */
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.confirm-remove-player-form').forEach(function (form) {
+            form.addEventListener('submit', function (event) {
+                const playerName = form.getAttribute('data-player-name') || 'this player';
+                if (!confirmRemovePlayer(playerName)) {
+                    event.preventDefault();
+                }
+            });
+        });
+    });
 </script>
 </body>
 </html>
