@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Manager Dashboard</title>
+    <title>Manager Dashboard | Singles, Sports and Social</title>
     <link rel="stylesheet" th:href="@{/css/app.css}">
 </head>
 <body>
@@ -13,11 +13,78 @@
         <a th:href="@{/}">Player Home</a>
     </nav>
 
+    <div class="success" th:if="${message}" th:text="${message}"></div>
+    <div class="error" th:if="${error}" th:text="${error}"></div>
+
     <section class="card hero">
-        <h1 th:text="'Game Week: ' + ${week.gameDate}">Game Week</h1>
-        <form th:action="@{/manager/generate-rosters}" method="post">
-            <button type="submit">Auto Create Rosters</button>
-        </form>
+        <h1 th:text="'Game Week: ' + ${#temporals.format(week.gameDate, 'M/d/yyyy')} + ' at ' + ${#temporals.format(week.gameTime, 'h:mm a')}">
+            Game Week
+        </h1>
+        <p class="muted">
+            Use this page to create rosters, adjust batting order, track runs, and progress through the game.
+        </p>
+        <div class="button-row">
+            <form th:action="@{/manager/generate-rosters}" method="post">
+                <button type="submit">Auto Create Rosters</button>
+            </form>
+            <form th:action="@{/manager/game/start}" method="post">
+                <button type="submit" class="secondary">Start Game</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="grid">
+        <div class="card">
+            <h2>Scoreboard</h2>
+            <table>
+                <thead>
+                <tr><th>Team</th><th>Runs</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="score : ${scores}">
+                    <td th:text="${score.color}">Red</td>
+                    <td th:text="${score.runs}">0</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Current At-Bat</h2>
+            <div th:if="${gameState == null}">
+                <p class="muted">Game has not been started yet.</p>
+            </div>
+            <div th:if="${gameState != null}">
+                <p>
+                    <strong>Inning:</strong>
+                    <span th:text="${gameState.inning}">1</span>
+                </p>
+                <p>
+                    <strong>Batting Team:</strong>
+                    <span th:text="${gameState.currentBattingTeam != null ? gameState.currentBattingTeam.color : 'None'}">Red</span>
+                </p>
+                <p>
+                    <strong>Current Batter:</strong>
+                    <span th:text="${gameState.currentBatterRosterEntry != null ? gameState.currentBatterRosterEntry.player.name : 'None'}">Player</span>
+                </p>
+                <div class="button-row">
+                    <form th:action="@{/manager/game/next-batter}" method="post">
+                        <button type="submit">Next Batter</button>
+                    </form>
+                    <form th:action="@{/manager/game/end-at-bat}" method="post">
+                        <button type="submit" class="secondary">End At-Bat / Switch Teams</button>
+                    </form>
+                    <button type="button"
+                            th:if="${gameState.currentBatterRosterEntry != null}"
+                            th:attr="data-entry-id=${gameState.currentBatterRosterEntry.id}"
+                            onclick="playWalkUpSong(this)">
+                        Play Walk-Up Song
+                    </button>
+                </div>
+                <p id="walk-up-status" class="muted"></p>
+                <audio id="walk-up-audio" controls style="width:100%; display:none;"></audio>
+            </div>
+        </div>
     </section>
 
     <section class="card">
@@ -33,25 +100,90 @@
         </table>
     </section>
 
-    <section class="card">
-        <h2>Rosters and Scoring</h2>
-        <table>
-            <thead><tr><th>Team</th><th>Order</th><th>Player</th><th>Runs</th><th></th></tr></thead>
-            <tbody>
-            <tr th:each="entry : ${rosterEntries}">
-                <td th:text="${entry.team.color}">Red</td>
-                <td th:text="${entry.battingOrder}">1</td>
-                <td th:text="${entry.player.name}">Player</td>
-                <td th:text="${entry.runsScored}">0</td>
-                <td>
-                    <form th:action="@{/manager/runs/{id}(id=${entry.id})}" method="post">
-                        <button type="submit">+ Run</button>
-                    </form>
-                </td>
-            </tr>
-            </tbody>
-        </table>
+    <section class="grid">
+        <div class="card" th:each="team : ${teams}">
+            <h2 th:text="${team.color} + ' Team'">Red Team</h2>
+
+            <form th:action="@{/manager/teams/{teamId}/add-player(teamId=${team.id})}" method="post">
+                <label>Add player manually</label>
+                <select name="playerId" required>
+                    <option value="">Choose a player</option>
+                    <option th:each="p : ${players}" th:value="${p.id}" th:text="${p.name}"></option>
+                </select>
+                <button type="submit">Add Player</button>
+            </form>
+
+            <table>
+                <thead>
+                <tr><th>Order</th><th>Player</th><th>Runs</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="entry : ${rosterEntries}"
+                    th:if="${entry.team.id == team.id}"
+                    th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id} ? 'current-batter' : ''">
+                    <td th:text="${entry.battingOrder}">1</td>
+                    <td>
+                        <span th:text="${entry.player.name}">Player</span>
+                        <span class="badge" th:if="${entry.player.manager}">Manager</span>
+                    </td>
+                    <td th:text="${entry.runsScored}">0</td>
+                    <td>
+                        <div class="button-row compact-actions">
+                            <form th:action="@{/manager/runs/{id}(id=${entry.id})}" method="post">
+                                <button type="submit">+ Run</button>
+                            </form>
+                            <form th:action="@{/manager/lineup/{id}/up(id=${entry.id})}" method="post">
+                                <button type="submit" class="secondary">↑</button>
+                            </form>
+                            <form th:action="@{/manager/lineup/{id}/down(id=${entry.id})}" method="post">
+                                <button type="submit" class="secondary">↓</button>
+                            </form>
+                            <form th:action="@{/manager/roster/{id}/remove(id=${entry.id})}" method="post">
+                                <button type="submit" class="danger">Remove</button>
+                            </form>
+                            <button type="button" th:attr="data-entry-id=${entry.id}" onclick="playWalkUpSong(this)">
+                                Song
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
     </section>
 </main>
+
+<script>
+    /**
+     * Fetches walk-up song data for a roster entry and plays the MP3 when one
+     * has been linked. If no MP3 exists yet, the manager still sees the saved
+     * artist/title so it can be played manually.
+     */
+    async function playWalkUpSong(button) {
+        const entryId = button.getAttribute('data-entry-id');
+        const status = document.getElementById('walk-up-status');
+        const audio = document.getElementById('walk-up-audio');
+
+        if (!entryId) {
+            return;
+        }
+
+        const response = await fetch('/manager/walk-up/' + entryId);
+        const song = await response.json();
+        const description = [song.artist, song.title].filter(Boolean).join(' - ');
+
+        if (song.playable && song.audioUrl) {
+            audio.src = song.audioUrl;
+            audio.style.display = 'block';
+            status.textContent = 'Playing walk-up song for ' + song.playerName + ': ' + (description || song.audioUrl);
+            await audio.play();
+        } else {
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.style.display = 'none';
+            status.textContent = song.playerName + ' walk-up song: ' + (description || 'No song selected yet.');
+        }
+    }
+</script>
 </body>
 </html>

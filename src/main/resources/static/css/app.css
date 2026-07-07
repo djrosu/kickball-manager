@@ -43,3 +43,44 @@ th, td { text-align: left; border-bottom: 1px solid var(--border); padding: .6re
     padding: 0.75rem;
     margin-bottom: 1rem;
 }
+
+.error {
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.badge {
+    display: inline-block;
+    margin-left: .4rem;
+    padding: .15rem .45rem;
+    border-radius: 999px;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: .75rem;
+    font-weight: 700;
+}
+
+.current-batter {
+    background: #fff7ed;
+    outline: 2px solid #fb923c;
+}
+
+button.danger {
+    background: #991b1b;
+}
+
+.compact-actions {
+    gap: .35rem;
+}
+
+.compact-actions form,
+.compact-actions button {
+    margin-top: 0;
+}
+
+.compact-actions button {
+    padding: .45rem .65rem;
+}
