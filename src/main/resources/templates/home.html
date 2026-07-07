@@ -5,15 +5,66 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Singles, Sports and Social</title>
     <link rel="stylesheet" th:href="@{/css/app.css}">
+
+    <style>
+        .mobile-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .mobile-header-title {
+            font-size: 1.25rem;
+            font-weight: 800;
+            line-height: 1.15;
+        }
+
+        .mobile-header-actions {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .mobile-header-actions a {
+            margin-right: 0;
+            white-space: nowrap;
+        }
+
+        .mobile-header-actions button {
+            margin-top: 0;
+        }
+
+        @media (max-width: 600px) {
+            .mobile-header {
+                align-items: flex-start;
+            }
+
+            .mobile-header-title {
+                max-width: 45%;
+            }
+
+            .mobile-header-actions {
+                flex-direction: column;
+                align-items: flex-end;
+            }
+        }
+    </style>
 </head>
 <body>
 <main class="page">
-    <nav class="topbar">
-        <strong>Singles, Sports and Social</strong>
-        <span>
+    <nav class="mobile-header">
+        <div class="mobile-header-title">Singles, Sports and Social</div>
+
+        <div class="mobile-header-actions">
             <a th:if="${player.manager}" th:href="@{/manager}">Manager Dashboard</a>
-            <form th:action="@{/logout}" method="post" class="inline"><button>Logout</button></form>
-        </span>
+            <form th:action="@{/logout}" method="post" class="inline">
+                <button type="submit">Logout</button>
+            </form>
+        </div>
     </nav>
 
     <section class="card hero">
@@ -59,7 +110,6 @@
 
             <p class="muted">
                 Optional: choose someone you would like to be teamed with for this week's game.
-                Selections are private. Mutual picks will only be considered by the algorithm during automatic weekly game roster creation.
             </p>
 
             <form th:action="@{/preference}" method="post">
@@ -87,10 +137,13 @@
             <form th:action="@{/profile}" method="post">
                 <label>Nickname</label>
                 <input name="nickname" th:value="${player.nickname}">
+
                 <label>Walk-up song artist</label>
                 <input name="walkUpSongArtist" th:value="${player.walkUpSongArtist}">
+
                 <label>Walk-up song title</label>
                 <input name="walkUpSongTitle" th:value="${player.walkUpSongTitle}">
+
                 <button type="submit">Save Profile</button>
             </form>
         </div>
