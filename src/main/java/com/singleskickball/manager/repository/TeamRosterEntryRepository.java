@@ -1,6 +1,9 @@
 package com.singleskickball.manager.repository;
 
-import com.singleskickball.manager.model.*;
+import com.singleskickball.manager.model.GameWeek;
+import com.singleskickball.manager.model.Player;
+import com.singleskickball.manager.model.Team;
+import com.singleskickball.manager.model.TeamRosterEntry;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -8,11 +11,10 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Data access for weekly roster entries.
+ * Data access for weekly team roster entries.
  *
- * Roster entries are where we store the week-specific batting order and run
- * totals. A player can appear on different teams in different weeks, but only
- * once within a single game week.
+ * A TeamRosterEntry is week-specific. It stores the player's team assignment,
+ * batting order, and runs scored for that week's game.
  */
 public interface TeamRosterEntryRepository extends JpaRepository<TeamRosterEntry, Long> {
 

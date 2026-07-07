@@ -1,6 +1,7 @@
 package com.singleskickball.manager.service;
 
 import com.singleskickball.manager.dto.WalkUpSongInfo;
+import com.singleskickball.manager.model.GameState;
 import com.singleskickball.manager.model.Player;
 import com.singleskickball.manager.model.TeamRosterEntry;
 import com.singleskickball.manager.repository.TeamRosterEntryRepository;
@@ -36,7 +37,33 @@ public class WalkUpSongService {
         TeamRosterEntry entry = rosterEntryRepository.findById(rosterEntryId)
                 .orElseThrow(() -> new IllegalArgumentException("Roster entry not found."));
 
-        return getWalkUpSongInfoForPlayer(entry.getPlayer());
+        WalkUpSongInfo info = getWalkUpSongInfoForPlayer(entry.getPlayer());
+        info.setRosterEntryId(entry.getId());
+        if (entry.getTeam() != null) {
+            info.setBattingTeamId(entry.getTeam().getId());
+            info.setBattingTeamColor(entry.getTeam().getColor());
+        }
+        return info;
+    }
+
+    /**
+     * Builds walk-up metadata for the current live game state.
+     *
+     * This wrapper adds inning and current batting team data so the AJAX
+     * response can update the dashboard indicators without requiring a reload.
+     */
+    public WalkUpSongInfo getWalkUpSongInfo(GameState state) {
+        if (state == null || state.getCurrentBatterRosterEntry() == null) {
+            throw new IllegalArgumentException("No current batter is available.");
+        }
+
+        WalkUpSongInfo info = getWalkUpSongInfo(state.getCurrentBatterRosterEntry().getId());
+        info.setInning(state.getInning());
+        if (state.getCurrentBattingTeam() != null) {
+            info.setBattingTeamId(state.getCurrentBattingTeam().getId());
+            info.setBattingTeamColor(state.getCurrentBattingTeam().getColor());
+        }
+        return info;
     }
 
     /**

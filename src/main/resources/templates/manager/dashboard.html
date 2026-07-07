@@ -44,8 +44,52 @@
             gap: .75rem;
         }
 
-        .lineup-row.current-batter {
+        /*
+         * Highlight the active batter in the roster section.
+         * Applying the background to table cells is more reliable than applying
+         * it only to the row, because some browsers/table styles paint cells
+         * over the row background.
+         */
+        .lineup-row.current-batter td {
             background: #fff7ed;
+            box-shadow: inset 0 1px 0 #fed7aa, inset 0 -1px 0 #fed7aa;
+        }
+
+        .lineup-row.current-batter td:first-child {
+            border-left: 5px solid #dc111b;
+            padding-left: calc(.75rem - 5px);
+        }
+
+        .current-batter-badge {
+            display: inline-block;
+            margin-top: .35rem;
+            padding: .15rem .45rem;
+            border-radius: 999px;
+            background: #dc111b;
+            color: #ffffff;
+            font-size: .75rem;
+            font-weight: 800;
+            letter-spacing: .02em;
+            text-transform: uppercase;
+        }
+
+        /*
+         * Keep the main play button readable in all states. The shared button
+         * styles make normal buttons red, but disabled buttons can become very
+         * low contrast on some browsers. This makes the audio button consistent.
+         */
+        #play-current-batter-audio {
+            background: #dc111b;
+            border: 1px solid #dc111b;
+            color: #ffffff;
+        }
+
+        #play-current-batter-audio:disabled {
+            background: #334155;
+            border-color: #334155;
+            color: #ffffff;
+            opacity: .7;
+            cursor: not-allowed;
         }
 
         .lineup-player-name {
@@ -189,11 +233,11 @@
             <div th:if="${gameState != null}">
                 <p>
                     <strong>Inning:</strong>
-                    <span th:text="${gameState.inning}">1</span>
+                    <span id="current-inning" th:text="${gameState.inning}">1</span>
                 </p>
                 <p>
                     <strong>Batting Team:</strong>
-                    <span th:text="${gameState.currentBattingTeam != null ? gameState.currentBattingTeam.color : 'None'}">Red</span>
+                    <span id="current-batting-team" th:text="${gameState.currentBattingTeam != null ? gameState.currentBattingTeam.color : 'None'}">Red</span>
                 </p>
                 <p>
                     <strong>Current Batter:</strong>
@@ -218,6 +262,7 @@
                                 data-status-target="#walkup-status"
                                 th:disabled="${currentWalkUpSong == null or (!currentWalkUpSong.introPlayable and !currentWalkUpSong.playable)}"
                                 th:data-player-id="${currentWalkUpSong != null ? currentWalkUpSong.playerId : ''}"
+                                th:data-roster-entry-id="${currentWalkUpSong != null ? currentWalkUpSong.rosterEntryId : ''}"
                                 th:data-player-name="${currentWalkUpSong != null ? currentWalkUpSong.playerName : ''}"
                                 th:data-artist="${currentWalkUpSong != null ? currentWalkUpSong.artist : ''}"
                                 th:data-title="${currentWalkUpSong != null ? currentWalkUpSong.title : ''}"
@@ -286,11 +331,17 @@
                 <tbody>
                 <tr th:each="entry : ${rosterEntries}"
                     th:if="${entry.team.id == team.id}"
-                    th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? 'current-batter lineup-row' : 'lineup-row'}">
+                    class="lineup-row"
+                    th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? ' current-batter' : ''}"
+                    th:attr="data-roster-entry-id=${entry.id}, data-team-id=${entry.team.id}, data-player-id=${entry.player.id}">
                     <td th:text="${entry.battingOrder}">1</td>
                     <td>
                         <div class="lineup-player-name" th:text="${entry.player.nickname ?: entry.player.name}">Player</div>
                         <div class="lineup-details" th:text="${entry.player.name}">Full Name</div>
+                        <span class="current-batter-badge"
+                              th:style="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? '' : 'display:none;'}">
+                            At Bat
+                        </span>
                     </td>
                     <td th:text="${entry.runsScored}">0</td>
                     <td>
@@ -331,6 +382,7 @@
     </section>
 </main>
 
-<script th:src="@{/js/walkup-player.js}"></script>
+<!-- Cache-bust the game audio script so phones pick up same-day game-management fixes immediately. -->
+<script th:src="@{/js/walkup-player.js(v=${#dates.createNow().time})}"></script>
 </body>
 </html>

@@ -67,9 +67,8 @@ public class LineupService {
     /**
      * Removes a player from the weekly roster.
      *
-     * Important:
-     * The live game state may currently point at the roster entry being removed
-     * through game_state.current_batter_roster_entry_id. If we delete the roster
+     * The game_state table may currently point at the roster entry being
+     * removed through current_batter_roster_entry_id. If we delete the roster
      * entry first, the database rejects the delete because of that foreign key.
      *
      * To keep the game usable, this method:
@@ -150,9 +149,6 @@ public class LineupService {
 
     /**
      * Keeps batting order values consecutive: 1, 2, 3, ...
-     *
-     * This is useful after manual deletes or old data imports where batting
-     * order values might have gaps.
      */
     private void normalizeBattingOrder(Team team) {
         List<TeamRosterEntry> entries = rosterEntryRepository.findByTeamOrderByBattingOrderAsc(team)

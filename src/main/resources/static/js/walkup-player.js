@@ -1,7 +1,8 @@
 /*
  * WalkupPlayer
  * ------------
- * Small reusable audio helper for the manager dashboard and upload page.
+ * Reusable audio and live-batter UI helper for the manager dashboard and
+ * walk-up upload page.
  *
  * Browser note:
  * Mobile Safari/iPadOS generally requires audio playback to begin from a user
@@ -110,6 +111,7 @@
     function infoFromButton(button) {
         return {
             playerId: button.dataset.playerId || null,
+            rosterEntryId: button.dataset.rosterEntryId || null,
             playerName: button.dataset.playerName || 'Player',
             artist: button.dataset.artist || '',
             title: button.dataset.title || '',
@@ -170,6 +172,8 @@
             const statusElement = document.querySelector('#walkup-status');
             const currentBatterName = document.querySelector('#current-batter-name');
             const currentBatterSong = document.querySelector('#current-batter-song');
+            const currentBattingTeam = document.querySelector('#current-batting-team');
+            const currentInning = document.querySelector('#current-inning');
             const playCurrentButton = document.querySelector('#play-current-batter-audio');
 
             if (statusElement) {
@@ -195,11 +199,20 @@
                 if (currentBatterSong) {
                     currentBatterSong.textContent = songLabel(info) || 'No song entered';
                 }
-                if (playCurrentButton) {
+                if (currentBattingTeam && info.battingTeamColor) {
+                    currentBattingTeam.textContent = info.battingTeamColor;
+                }
+                if (currentInning && info.inning) {
+                    currentInning.textContent = info.inning;
+                }
+                        if (playCurrentButton) {
                     updateButtonAudioData(playCurrentButton, info);
                     playCurrentButton.disabled = !(info.introPlayable || info.playable);
                 }
 
+                // Update the roster highlight before audio starts so the manager
+                // can immediately see who is at bat while the intro/walk-up plays.
+                updateCurrentBatterIndicator(info);
                 await playSequence(info, statusElement);
             } catch (error) {
                 if (statusElement) {
@@ -211,11 +224,98 @@
 
     function updateButtonAudioData(button, info) {
         button.dataset.playerId = info.playerId || '';
+        button.dataset.rosterEntryId = info.rosterEntryId || '';
         button.dataset.playerName = info.playerName || '';
         button.dataset.artist = info.artist || '';
         button.dataset.title = info.title || '';
         button.dataset.introUrl = info.introPlayable ? info.introAudioUrl : '';
         button.dataset.songUrl = info.playable ? info.audioUrl : '';
+    }
+
+    /**
+     * Updates the highlighted row in the roster table after AJAX Next Batter.
+     * Without this, the text at the top of the page changes, but the lineup row
+     * still visually marks the old batter until the whole page is reloaded.
+     */
+    /**
+     * Updates the highlighted row in the roster table after AJAX Next Batter.
+     *
+     * We deliberately use several matching strategies. During active game play,
+     * the AJAX response should contain the current rosterEntryId, which is the
+     * most precise identifier. If a browser has stale markup or an older page
+     * shape, we fall back to matching by team id + player id, then player id.
+     */
+    function updateCurrentBatterIndicator(info) {
+        const rosterEntryIdText = valueAsText(info && info.rosterEntryId);
+        const teamIdText = valueAsText(info && info.battingTeamId);
+        const playerIdText = valueAsText(info && info.playerId);
+
+        // Clear the old visual state and hide every At Bat badge.
+        document.querySelectorAll('.lineup-row.current-batter').forEach(function (row) {
+            row.classList.remove('current-batter');
+            row.removeAttribute('aria-current');
+        });
+        document.querySelectorAll('.current-batter-badge').forEach(function (badge) {
+            badge.style.display = 'none';
+        });
+
+        const nextRow = findCurrentBatterRow(rosterEntryIdText, teamIdText, playerIdText);
+        if (!nextRow) {
+            return;
+        }
+
+        nextRow.classList.add('current-batter');
+        nextRow.setAttribute('aria-current', 'true');
+
+        const badge = nextRow.querySelector('.current-batter-badge');
+        if (badge) {
+            badge.style.display = 'inline-block';
+        }
+
+        // Keep the current batter visible on smaller phone screens.
+        nextRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function valueAsText(value) {
+        return value === null || value === undefined ? '' : String(value);
+    }
+
+    function findCurrentBatterRow(rosterEntryIdText, teamIdText, playerIdText) {
+        if (rosterEntryIdText) {
+            const byRosterEntry = document.querySelector('[data-roster-entry-id="' + cssEscape(rosterEntryIdText) + '"]');
+            if (byRosterEntry) {
+                return byRosterEntry;
+            }
+        }
+
+        if (teamIdText && playerIdText) {
+            const byTeamAndPlayer = document.querySelector(
+                '[data-team-id="' + cssEscape(teamIdText) + '"][data-player-id="' + cssEscape(playerIdText) + '"]'
+            );
+            if (byTeamAndPlayer) {
+                return byTeamAndPlayer;
+            }
+        }
+
+        if (playerIdText) {
+            const byPlayer = document.querySelector('[data-player-id="' + cssEscape(playerIdText) + '"]');
+            if (byPlayer) {
+                return byPlayer;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * CSS.escape is not available in every older mobile browser. IDs here are
+     * numeric, but this helper keeps the selector construction safe and portable.
+     */
+    function cssEscape(value) {
+        if (window.CSS && typeof window.CSS.escape === 'function') {
+            return window.CSS.escape(value);
+        }
+        return String(value).replace(/"/g, '\\"');
     }
 
     function wireRemoveConfirmations() {

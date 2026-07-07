@@ -119,7 +119,7 @@ public class ManagerController {
         if (state.getCurrentBatterRosterEntry() == null) {
             throw new IllegalStateException("No current batter is available.");
         }
-        return walkUpSongService.getWalkUpSongInfo(state.getCurrentBatterRosterEntry().getId());
+        return walkUpSongService.getWalkUpSongInfo(state);
     }
 
     /**
@@ -185,6 +185,6 @@ public class ManagerController {
         if (gameState == null || gameState.getCurrentBatterRosterEntry() == null) {
             return null;
         }
-        return walkUpSongService.getWalkUpSongInfo(gameState.getCurrentBatterRosterEntry().getId());
+        return walkUpSongService.getWalkUpSongInfo(gameState);
     }
 }

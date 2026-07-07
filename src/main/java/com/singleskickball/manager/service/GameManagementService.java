@@ -1,21 +1,40 @@
 package com.singleskickball.manager.service;
 
 import com.singleskickball.manager.dto.TeamScore;
-import com.singleskickball.manager.model.*;
-import com.singleskickball.manager.repository.*;
+import com.singleskickball.manager.model.GameState;
+import com.singleskickball.manager.model.GameWeek;
+import com.singleskickball.manager.model.GameWeekStatus;
+import com.singleskickball.manager.model.Team;
+import com.singleskickball.manager.model.TeamRosterEntry;
+import com.singleskickball.manager.repository.GameStateRepository;
+import com.singleskickball.manager.repository.GameWeekRepository;
+import com.singleskickball.manager.repository.TeamRepository;
+import com.singleskickball.manager.repository.TeamRosterEntryRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
  * Owns live game operations.
  *
  * This service tracks which team is batting, which player is currently up, run
- * scoring, and switching sides. Keeping this logic out of the controller makes
- * it easier to later add a live scoreboard, WebSocket updates, or mobile app
- * endpoints without duplicating business rules.
+ * scoring, and switching sides. Per-team batting positions are intentionally
+ * kept in memory instead of adding another production database table.
+ *
+ * Why in memory?
+ * - Batting-position progress only matters while a live game is being managed.
+ * - Rosters are regenerated each week.
+ * - We do not need historical persistence for where a lineup was mid-game.
+ *
+ * The durable game_state table still stores the visible current batting team,
+ * current batter, and inning. The in-memory map only remembers each team's last
+ * batter while switching between teams during an active server process.
  */
 @Service
 public class GameManagementService {
@@ -24,6 +43,11 @@ public class GameManagementService {
     private final GameStateRepository gameStateRepository;
     private final TeamRepository teamRepository;
     private final TeamRosterEntryRepository rosterEntryRepository;
+
+    /**
+     * week id -> team id -> current roster-entry id for that team's batting order.
+     */
+    private final Map<Long, Map<Long, Long>> currentBatterByWeekAndTeam = new ConcurrentHashMap<>();
 
     public GameManagementService(GameWeekRepository gameWeekRepository,
                                  GameStateRepository gameStateRepository,
@@ -40,11 +64,10 @@ public class GameManagementService {
     }
 
     /**
-     * Starts or restarts live game tracking for a week.
+     * Starts or restarts live game tracking for the selected week.
      *
-     * This does not create rosters. Rosters must exist first. The first team in
-     * database order bats first and the first batter in that team's batting order
-     * becomes the current batter.
+     * The first team in database order bats first. Each team's in-memory batting
+     * position is initialized to the first player in that team's batting order.
      */
     @Transactional
     public GameState startGame(GameWeek week) {
@@ -53,8 +76,10 @@ public class GameManagementService {
             throw new IllegalStateException("Create rosters before starting the game.");
         }
 
+        initializeInMemoryBattingPositions(week, teams);
+
         Team firstTeam = teams.get(0);
-        TeamRosterEntry firstBatter = rosterEntryRepository.findFirstByTeamOrderByBattingOrderAsc(firstTeam)
+        TeamRosterEntry firstBatter = currentBatterForTeam(week, firstTeam)
                 .orElseThrow(() -> new IllegalStateException("The first team has no batting order."));
 
         GameState state = gameStateRepository.findByGameWeek(week).orElseGet(() -> {
@@ -76,32 +101,38 @@ public class GameManagementService {
     /**
      * Advances to the next batter on the current batting team.
      *
-     * If the current batter is the last batter in the lineup, this wraps back to
-     * the top of the same team's order. The manager should use endAtBat() when
-     * the half-inning is over and it is time to switch teams.
+     * The key detail: each team's position is remembered separately in memory,
+     * so when teams switch at-bats and later switch back, the returning team
+     * resumes where it left off instead of starting over at the top.
      */
     @Transactional
     public GameState nextBatter(GameWeek week) {
         GameState state = requireGameState(week);
         Team battingTeam = state.getCurrentBattingTeam();
+        if (battingTeam == null) {
+            throw new IllegalStateException("No batting team is selected.");
+        }
+
         List<TeamRosterEntry> lineup = rosterEntryRepository.findByTeamOrderByBattingOrderAsc(battingTeam);
         if (lineup.isEmpty()) {
             throw new IllegalStateException("Current batting team has no players.");
         }
 
-        TeamRosterEntry current = state.getCurrentBatterRosterEntry();
+        TeamRosterEntry current = bestCurrentBatterForNextAdvance(week, battingTeam, state, lineup);
         int currentIndex = findRosterEntryIndex(lineup, current);
         int nextIndex = (currentIndex + 1) % lineup.size();
+        TeamRosterEntry nextBatter = lineup.get(nextIndex);
 
-        state.setCurrentBatterRosterEntry(lineup.get(nextIndex));
+        rememberCurrentBatter(week, battingTeam, nextBatter);
+        state.setCurrentBatterRosterEntry(nextBatter);
         return gameStateRepository.save(state);
     }
 
     /**
      * Ends the current team's at-bat and switches to the next team.
      *
-     * For two teams, this simply alternates Red/Yellow. If more teams are added
-     * later, this cycles through all teams in their saved order. When the cycle
+     * With two teams this alternates Red/Yellow. If more teams are added later,
+     * the same logic cycles through all teams in database order. When the cycle
      * returns to the first team, the inning counter advances.
      */
     @Transactional
@@ -113,6 +144,10 @@ public class GameManagementService {
         }
 
         Team currentTeam = state.getCurrentBattingTeam();
+        if (currentTeam != null && state.getCurrentBatterRosterEntry() != null) {
+            rememberCurrentBatter(week, currentTeam, state.getCurrentBatterRosterEntry());
+        }
+
         int currentIndex = findTeamIndex(teams, currentTeam);
         int nextIndex = (currentIndex + 1) % teams.size();
 
@@ -121,11 +156,15 @@ public class GameManagementService {
         }
 
         Team nextTeam = teams.get(nextIndex);
+        TeamRosterEntry nextTeamCurrentBatter = currentBatterForTeam(week, nextTeam)
+                .orElseGet(() -> rosterEntryRepository.findFirstByTeamOrderByBattingOrderAsc(nextTeam).orElse(null));
+
         state.setCurrentBattingTeam(nextTeam);
-        state.setCurrentBatterRosterEntry(rosterEntryRepository.findFirstByTeamOrderByBattingOrderAsc(nextTeam).orElse(null));
+        state.setCurrentBatterRosterEntry(nextTeamCurrentBatter);
         return gameStateRepository.save(state);
     }
 
+    /** Adds one run to the selected player/roster entry. */
     @Transactional
     public void addRun(Long rosterEntryId) {
         TeamRosterEntry entry = rosterEntryRepository.findById(rosterEntryId)
@@ -134,9 +173,7 @@ public class GameManagementService {
         rosterEntryRepository.save(entry);
     }
 
-    /**
-     * Returns current score by team based on all roster entry run totals.
-     */
+    /** Returns current score by team based on roster entry run totals. */
     public List<TeamScore> getScores(GameWeek week) {
         Map<Long, Integer> totalsByTeamId = rosterEntryRepository.findTeamRunTotals(week)
                 .stream()
@@ -156,6 +193,56 @@ public class GameManagementService {
                 .toList();
     }
 
+    private void initializeInMemoryBattingPositions(GameWeek week, List<Team> teams) {
+        Map<Long, Long> positions = new ConcurrentHashMap<>();
+        for (Team team : teams) {
+            rosterEntryRepository.findFirstByTeamOrderByBattingOrderAsc(team)
+                    .ifPresent(entry -> positions.put(team.getId(), entry.getId()));
+        }
+        currentBatterByWeekAndTeam.put(week.getId(), positions);
+    }
+
+    private TeamRosterEntry bestCurrentBatterForNextAdvance(GameWeek week,
+                                                           Team battingTeam,
+                                                           GameState state,
+                                                           List<TeamRosterEntry> lineup) {
+        TeamRosterEntry visibleCurrent = state.getCurrentBatterRosterEntry();
+        if (visibleCurrent != null
+                && visibleCurrent.getTeam() != null
+                && Objects.equals(visibleCurrent.getTeam().getId(), battingTeam.getId())
+                && findRosterEntryIndex(lineup, visibleCurrent) >= 0) {
+            return visibleCurrent;
+        }
+
+        return currentBatterForTeam(week, battingTeam).orElse(null);
+    }
+
+    private Optional<TeamRosterEntry> currentBatterForTeam(GameWeek week, Team team) {
+        Long rosterEntryId = currentBatterByWeekAndTeam
+                .getOrDefault(week.getId(), Map.of())
+                .get(team.getId());
+
+        if (rosterEntryId != null) {
+            Optional<TeamRosterEntry> saved = rosterEntryRepository.findById(rosterEntryId);
+            if (saved.isPresent() && saved.get().getTeam() != null
+                    && Objects.equals(saved.get().getTeam().getId(), team.getId())) {
+                return saved;
+            }
+        }
+
+        return rosterEntryRepository.findFirstByTeamOrderByBattingOrderAsc(team);
+    }
+
+    private void rememberCurrentBatter(GameWeek week, Team team, TeamRosterEntry batter) {
+        if (week == null || week.getId() == null || team == null || team.getId() == null || batter == null || batter.getId() == null) {
+            return;
+        }
+
+        currentBatterByWeekAndTeam
+                .computeIfAbsent(week.getId(), ignored -> new ConcurrentHashMap<>())
+                .put(team.getId(), batter.getId());
+    }
+
     private int findRosterEntryIndex(List<TeamRosterEntry> lineup, TeamRosterEntry current) {
         if (current == null || current.getId() == null) {
             return -1;
@@ -170,14 +257,14 @@ public class GameManagementService {
 
     private int findTeamIndex(List<Team> teams, Team currentTeam) {
         if (currentTeam == null || currentTeam.getId() == null) {
-            return -1;
+            return 0;
         }
         for (int i = 0; i < teams.size(); i++) {
             if (Objects.equals(teams.get(i).getId(), currentTeam.getId())) {
                 return i;
             }
         }
-        return -1;
+        return 0;
     }
 
     private GameState requireGameState(GameWeek week) {
