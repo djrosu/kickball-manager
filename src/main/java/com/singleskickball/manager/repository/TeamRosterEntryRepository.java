@@ -31,26 +31,28 @@ public interface TeamRosterEntryRepository extends JpaRepository<TeamRosterEntry
 
     boolean existsByTeam_GameWeekAndPlayer(GameWeek gameWeek, Player player);
 
+    /**
+     * Used as a compatibility fallback for teams created before the
+     * manager_player_id column existed. If a manager is on the roster and the
+     * team has no explicit manager assignment, we can still treat that manager
+     * as responsible for that team until rosters are regenerated.
+     */
+    boolean existsByTeamAndPlayer(Team team, Player player);
+
     @Query("select e.team.id, coalesce(sum(e.runsScored), 0) " +
             "from TeamRosterEntry e " +
             "where e.team.gameWeek = ?1 " +
             "group by e.team.id")
     List<Object[]> findTeamRunTotals(GameWeek gameWeek);
 
-    /**
-     * Top run leaders across all saved weekly roster entries. This is the
-     * season leaderboard shown on the player home page.
-     */
+    /** Top run leaders across all saved weekly roster entries. */
     @Query("select e.player.name, coalesce(sum(e.runsScored), 0) " +
             "from TeamRosterEntry e " +
             "group by e.player.id, e.player.name " +
             "order by coalesce(sum(e.runsScored), 0) desc, e.player.name asc")
     List<Object[]> findRunLeaders();
 
-    /**
-     * Player-id keyed run totals used by the roster builder. These totals let
-     * us gently split strong/high-scoring players across teams in future weeks.
-     */
+    /** Player-id keyed run totals used by the roster builder. */
     @Query("select e.player.id, coalesce(sum(e.runsScored), 0) " +
             "from TeamRosterEntry e " +
             "group by e.player.id")

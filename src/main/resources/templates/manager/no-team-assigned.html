@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>No Team Assigned</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <style>
+        .manager-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .manager-nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .manager-nav a {
+            color: var(--accent);
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        @media (max-width: 700px) {
+            .manager-nav {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .manager-nav-actions {
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+<main class="page">
+    <nav class="manager-nav">
+        <strong>Team Manager Dashboard</strong>
+        <div class="manager-nav-actions">
+            <a th:if="${leagueSupervisor}" th:href="@{/manager/supervisor}">League Supervisor Dashboard</a>
+            <a th:href="@{/}">Player Home</a>
+        </div>
+    </nav>
+
+    <section class="card hero">
+        <h1>No Team Assigned</h1>
+        <p th:text="'Game Week: ' + ${#temporals.format(week.gameDate, 'M/d/yyyy')} + ' at ' + ${#temporals.format(week.gameTime, 'h:mm a')}">
+            Game Week
+        </p>
+        <p class="muted">
+            You are a manager, but you are not assigned as a Team Manager for this game.
+            If you are the League Supervisor, use the League Supervisor Dashboard to manage all teams.
+        </p>
+
+        <div class="button-row">
+            <a th:if="${leagueSupervisor}" th:href="@{/manager/supervisor}" class="button-link">League Supervisor Dashboard</a>
+            <a th:href="@{/}" class="button-link secondary-link">Player Home</a>
+        </div>
+    </section>
+</main>
+</body>
+</html>

@@ -182,6 +182,20 @@ public class GameManagementService {
     }
 
     /**
+     * Resumes or starts live tracking for a selected game week.
+     *
+     * This is primarily used from the League Supervisor Game Administration
+     * section. It is safe for recovering from an accidental End Game click:
+     * existing teams, batting order, and run totals are preserved. If the prior
+     * game_state row was deleted by End Game, live tracking is recreated from
+     * the first team/first batter.
+     */
+    @Transactional
+    public GameState resumeGame(GameWeek week) {
+        return startGame(week);
+    }
+
+    /**
      * Restarts live game tracking using the existing teams and batting order.
      *
      * This does not delete teams or reset run totals. It simply puts the game
@@ -194,12 +208,42 @@ public class GameManagementService {
         return startGame(week);
     }
 
+    /**
+     * Reopens a game for player availability.
+     *
+     * This is a supervisor recovery tool. It removes only the live game_state
+     * row and changes the week status back to OPEN_FOR_AVAILABILITY. It does
+     * not delete players, availability selections, preferences, rosters, or run
+     * totals.
+     */
+    @Transactional
+    public void reopenForAvailability(GameWeek week) {
+        gameStateRepository.findByGameWeek(week).ifPresent(gameStateRepository::delete);
+        currentBatterByWeekAndTeam.remove(week.getId());
+        week.setStatus(GameWeekStatus.OPEN_FOR_AVAILABILITY);
+        gameWeekRepository.save(week);
+    }
+
     /** Adds one run to the selected player/roster entry. */
     @Transactional
     public void addRun(Long rosterEntryId) {
         TeamRosterEntry entry = rosterEntryRepository.findById(rosterEntryId)
                 .orElseThrow(() -> new IllegalArgumentException("Roster entry not found."));
         entry.setRunsScored(entry.getRunsScored() + 1);
+        rosterEntryRepository.save(entry);
+    }
+
+    /**
+     * Removes one run from the selected player/roster entry.
+     *
+     * The count never goes below zero. This gives scorekeepers a quick way to
+     * correct an accidental tap without directly editing the database.
+     */
+    @Transactional
+    public void removeRun(Long rosterEntryId) {
+        TeamRosterEntry entry = rosterEntryRepository.findById(rosterEntryId)
+                .orElseThrow(() -> new IllegalArgumentException("Roster entry not found."));
+        entry.setRunsScored(Math.max(0, entry.getRunsScored() - 1));
         rosterEntryRepository.save(entry);
     }
 

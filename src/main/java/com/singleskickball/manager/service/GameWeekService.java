@@ -75,6 +75,28 @@ public class GameWeekService {
                 });
     }
 
+    /**
+     * Returns every scheduled game week in schedule order.
+     *
+     * The League Supervisor game administration section uses this to show
+     * current and past games so an accidentally ended game can be resumed
+     * without touching the database manually.
+     */
+    public List<GameWeek> getAllGameWeeks() {
+        return gameWeekRepository.findAll()
+                .stream()
+                .sorted(Comparator.comparing(GameWeek::getGameDate))
+                .toList();
+    }
+
+    /**
+     * Looks up a specific game week by id for supervisor-selected actions.
+     */
+    public GameWeek getGameWeek(Long gameWeekId) {
+        return gameWeekRepository.findById(gameWeekId)
+                .orElseThrow(() -> new IllegalArgumentException("Game week not found."));
+    }
+
     public List<PlayerAvailability> getAvailabilityForWeek(GameWeek week) {
         return availabilityRepository.findByGameWeek(week);
     }
