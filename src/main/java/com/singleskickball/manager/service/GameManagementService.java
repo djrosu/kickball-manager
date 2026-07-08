@@ -145,7 +145,19 @@ public class GameManagementService {
 
         Team currentTeam = state.getCurrentBattingTeam();
         if (currentTeam != null && state.getCurrentBatterRosterEntry() != null) {
-            rememberCurrentBatter(week, currentTeam, state.getCurrentBatterRosterEntry());
+            /*
+             * IMPORTANT GAME-FLOW DETAIL:
+             *
+             * The visible current batter represents the player who was up when
+             * the half-inning ended. When that team comes back to bat, the app
+             * should show the NEXT batter in that team's lineup, not the same
+             * player again.
+             *
+             * We therefore store the next batter for the team that is leaving
+             * the plate before switching to the next batting team. Each team
+             * keeps its own in-memory batting position for the active game.
+             */
+            rememberNextBatterForTeam(week, currentTeam, state.getCurrentBatterRosterEntry());
         }
 
         int currentIndex = findTeamIndex(teams, currentTeam);
@@ -305,6 +317,29 @@ public class GameManagementService {
         }
 
         return rosterEntryRepository.findFirstByTeamOrderByBattingOrderAsc(team);
+    }
+
+    /**
+     * Stores the next batter for a team when that team's at-bat ends.
+     *
+     * This is intentionally different from rememberCurrentBatter(...). The
+     * current visible batter is the last batter shown during the current
+     * half-inning. When this team bats again, the lineup should resume with the
+     * following player.
+     */
+    private void rememberNextBatterForTeam(GameWeek week, Team team, TeamRosterEntry currentBatter) {
+        if (week == null || team == null || currentBatter == null) {
+            return;
+        }
+
+        List<TeamRosterEntry> lineup = rosterEntryRepository.findByTeamOrderByBattingOrderAsc(team);
+        if (lineup.isEmpty()) {
+            return;
+        }
+
+        int currentIndex = findRosterEntryIndex(lineup, currentBatter);
+        int nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % lineup.size();
+        rememberCurrentBatter(week, team, lineup.get(nextIndex));
     }
 
     private void rememberCurrentBatter(GameWeek week, Team team, TeamRosterEntry batter) {
