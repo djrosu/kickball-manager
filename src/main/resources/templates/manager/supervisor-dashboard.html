@@ -131,6 +131,113 @@
             border-top: 1px solid var(--border);
         }
 
+        /*
+         * League Supervisor-only game administration table.
+         * This keeps recovery actions such as Resume/Restart/End available
+         * without requiring direct database edits.
+         */
+        .game-admin-actions {
+            display: flex;
+            gap: .35rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .game-admin-actions form,
+        .game-admin-actions a {
+            margin-top: 0;
+        }
+
+        .game-admin-actions button,
+        .game-admin-actions a {
+            padding: .45rem .65rem;
+            font-size: .85rem;
+        }
+
+        .selected-game-row td {
+            background: #eff6ff;
+        }
+
+        /*
+         * Collapsible panels are only used on the League Supervisor screen.
+         * The supervisor may eventually see several games and many teams, so
+         * each major section can be opened or hidden without leaving the page.
+         */
+        .collapsible-section {
+            overflow: hidden;
+        }
+
+        .collapsible-summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            cursor: pointer;
+            list-style: none;
+        }
+
+        .collapsible-summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .collapsible-summary::after {
+            content: "▾";
+            font-size: 1rem;
+            font-weight: 800;
+            color: var(--muted);
+            transition: transform .15s ease;
+        }
+
+        details:not([open]) > .collapsible-summary::after {
+            transform: rotate(-90deg);
+        }
+
+        .collapsible-summary h1,
+        .collapsible-summary h2 {
+            margin: 0;
+        }
+
+        .collapsible-content {
+            margin-top: 1rem;
+        }
+
+        .supervisor-section-label {
+            display: inline-block;
+            font-size: .8rem;
+            color: var(--muted);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        /*
+         * Supervisor team cards stack vertically instead of side-by-side.
+         * This lets a league supervisor collapse unrelated teams and keep
+         * their own team expanded without wasting horizontal screen space.
+         */
+        .supervisor-team-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .supervisor-team-list .team-card {
+            width: 100%;
+        }
+
+        .supervisor-team-list .team-card[open] {
+            padding-bottom: 1rem;
+        }
+
+        .supervisor-team-hint {
+            margin-top: .35rem;
+            font-size: .85rem;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+
         @media (max-width: 700px) {
             .manager-nav {
                 align-items: flex-start;
@@ -180,10 +287,16 @@
     <div class="success" th:if="${message}" th:text="${message}"></div>
     <div class="error" th:if="${error}" th:text="${error}"></div>
 
-    <section class="card hero">
-        <h1 th:text="'Game Week: ' + ${#temporals.format(week.gameDate, 'M/d/yyyy')} + ' at ' + ${#temporals.format(week.gameTime, 'h:mm a')}">
-            Game Week
-        </h1>
+    <details class="card hero collapsible-section" data-collapse-key="selected-game" open>
+        <summary class="collapsible-summary">
+            <div>
+                <span class="supervisor-section-label">Selected Game</span>
+                <h1 th:text="'Game Week: ' + ${#temporals.format(week.gameDate, 'M/d/yyyy')} + ' at ' + ${#temporals.format(week.gameTime, 'h:mm a')}">
+                    Game Week
+                </h1>
+            </div>
+        </summary>
+        <div class="collapsible-content">
         <p class="muted">
             Use this page to supervise all teams, create rosters, adjust batting order, track runs, progress through the game,
             and play walk-up audio.
@@ -191,6 +304,7 @@
 
         <div class="button-row">
             <form th:action="@{/manager/supervisor/generate-rosters}" method="post">
+                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                 <!--
                     Only automatic roster creation is disabled after the live
                     game starts. Manual roster edits and batting-order changes
@@ -206,6 +320,7 @@
 
             <form th:action="@{/manager/supervisor/game/start}" method="post"
                   th:if="${gameState == null}">
+                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                 <button type="submit"
                         class="secondary"
                         title="Start live game tracking.">
@@ -219,6 +334,7 @@
                   method="post"
                   th:if="${gameState != null}"
                   onsubmit="return confirm('Restart live game tracking for this week? Existing rosters and runs will be preserved, but the current at-bat will return to the first team and first batter.');">
+                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                 <button type="submit"
                         class="secondary"
                         title="Restart live game tracking without deleting rosters or runs.">
@@ -230,6 +346,7 @@
                   method="post"
                   th:if="${gameState != null}"
                   onsubmit="return confirm('End this game? Run totals and rosters will be saved, and the app will move on to the next scheduled game week.');">
+                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                 <button type="submit"
                         class="danger"
                         title="End the current game and save final run totals.">
@@ -237,11 +354,15 @@
                 </button>
             </form>
         </div>
-    </section>
+        </div>
+    </details>
 
     <section class="grid">
-        <div class="card">
-            <h2>Scoreboard</h2>
+        <details class="card collapsible-section" data-collapse-key="scoreboard" open>
+            <summary class="collapsible-summary">
+                <h2>Scoreboard</h2>
+            </summary>
+            <div class="collapsible-content">
             <table>
                 <thead>
                 <tr><th>Team</th><th>Runs</th></tr>
@@ -254,10 +375,14 @@
                 </tbody>
             </table>
             <p th:if="${#lists.isEmpty(scores)}" class="muted">No teams have been created yet.</p>
-        </div>
+            </div>
+        </details>
 
-        <div class="card">
-            <h2>Current At-Bat</h2>
+        <details class="card collapsible-section" data-collapse-key="current-at-bat" open>
+            <summary class="collapsible-summary">
+                <h2>Current At-Bat</h2>
+            </summary>
+            <div class="collapsible-content">
 
             <div th:if="${gameState == null}">
                 <p class="muted">Game has not been started yet.</p>
@@ -319,38 +444,35 @@
 
                 <div class="button-row">
                     <form th:action="@{/manager/supervisor/game/next-batter-info}" method="post" data-next-batter-form>
+                        <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                         <button type="submit">Next Batter</button>
                     </form>
 
                     <form th:action="@{/manager/supervisor/game/end-at-bat}" method="post">
+                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                         <button type="submit" class="secondary">End At-Bat / Switch Teams</button>
                     </form>
                 </div>
             </div>
-        </div>
+            </div>
+        </details>
     </section>
 
-    <section class="card">
-        <h2>Availability</h2>
-        <table>
-            <thead>
-            <tr><th>Player</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-            <tr th:each="a : ${availability}">
-                <td th:text="${a.player.name}">Player</td>
-                <td th:text="${a.status}">IN</td>
-            </tr>
-            </tbody>
-        </table>
-        <p th:if="${#lists.isEmpty(availability)}" class="muted">No players have marked availability yet.</p>
-    </section>
-
-    <section class="grid">
-        <div class="card team-card" th:each="team : ${teams}">
-            <h2>
-                <span th:text="${team.color} + ' Team'">Red Team</span>
-            </h2>
+    <section class="supervisor-team-list">
+        <details class="card team-card collapsible-section" th:each="team : ${teams}" th:attr="data-collapse-key=${'team-' + team.id}" open>
+            <summary class="collapsible-summary">
+                <div>
+                    <h2>
+                        <span th:text="${team.color} + ' Team'">Red Team</span>
+                    </h2>
+                    <div class="supervisor-team-hint"
+                         th:if="${team.managerPlayer != null}"
+                         th:text="'Manager: ' + (${team.managerPlayer.nickname} ?: ${team.managerPlayer.name})">
+                        Manager
+                    </div>
+                </div>
+            </summary>
+            <div class="collapsible-content">
 
             <table>
                 <thead>
@@ -380,18 +502,22 @@
                     <td>
                         <div class="lineup-actions">
                             <form th:action="@{/manager/supervisor/lineup/{id}/up(id=${entry.id})}" method="post">
+                                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                                 <button type="submit" class="secondary">↑</button>
                             </form>
 
                             <form th:action="@{/manager/supervisor/lineup/{id}/down(id=${entry.id})}" method="post">
+                                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                                 <button type="submit" class="secondary">↓</button>
                             </form>
 
                             <form th:action="@{/manager/supervisor/runs/{id}(id=${entry.id})}" method="post">
+                                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                                 <button type="submit">+ Run</button>
                             </form>
 
                             <form th:action="@{/manager/supervisor/runs/{id}/remove(id=${entry.id})}" method="post">
+                                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                                 <button type="submit" class="secondary">- Run</button>
                             </form>
 
@@ -399,6 +525,7 @@
                                   method="post"
                                   class="confirm-remove-player-form"
                                   th:data-player-name="${entry.player.nickname ?: entry.player.name}">
+                                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                                 <button type="submit" class="danger">Remove</button>
                             </form>
                         </div>
@@ -408,6 +535,7 @@
             </table>
 
             <form class="add-player-form" th:action="@{/manager/supervisor/teams/{teamId}/add-player(teamId=${team.id})}" method="post">
+                <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
                 <label th:for="${'add-player-' + team.id}">Add player to this team</label>
                 <select th:id="${'add-player-' + team.id}" name="playerId" required>
                     <option value="">Choose a player</option>
@@ -415,9 +543,127 @@
                 </select>
                 <button type="submit">Add Player</button>
             </form>
-        </div>
+            </div>
+        </details>
     </section>
+
+    <details class="card collapsible-section" data-collapse-key="game-administration">
+        <summary class="collapsible-summary">
+            <h2>Game Administration</h2>
+        </summary>
+        <div class="collapsible-content">
+        <p class="muted">
+            League Supervisor recovery tools. Use this section to manage a different week, resume an accidentally ended game,
+            restart live tracking without deleting runs, or reopen availability. Existing rosters, runs, availability, and player
+            profile data are preserved by these actions.
+        </p>
+
+        <table>
+            <thead>
+            <tr>
+                <th>Game</th>
+                <th>Status</th>
+                <th>Selected</th>
+                <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="adminWeek : ${allGameWeeks}"
+                th:classappend="${adminWeek.id == selectedGameWeekId ? 'selected-game-row' : ''}">
+                <td th:text="${#temporals.format(adminWeek.gameDate, 'M/d/yyyy')} + ' at ' + ${#temporals.format(adminWeek.gameTime, 'h:mm a')}">
+                    7/7/2026 at 7:00 PM
+                </td>
+                <td th:text="${adminWeek.status}">OPEN_FOR_AVAILABILITY</td>
+                <td>
+                    <span th:if="${adminWeek.id == selectedGameWeekId}" class="status-pill secondary">Viewing</span>
+                    <a th:if="${adminWeek.id != selectedGameWeekId}"
+                       th:href="@{/manager/supervisor(gameWeekId=${adminWeek.id})}">Manage</a>
+                </td>
+                <td>
+                    <div class="game-admin-actions">
+                        <form th:action="@{/manager/supervisor/game-weeks/{id}/resume(id=${adminWeek.id})}"
+                              method="post"
+                              onsubmit="return confirm('Resume this game? Existing rosters and runs will be preserved.');">
+                            <button type="submit" class="secondary">Resume</button>
+                        </form>
+
+                        <form th:action="@{/manager/supervisor/game-weeks/{id}/restart(id=${adminWeek.id})}"
+                              method="post"
+                              onsubmit="return confirm('Restart live tracking for this game? Existing rosters and runs will be preserved, but the current at-bat returns to the first team and first batter.');">
+                            <button type="submit" class="secondary">Restart</button>
+                        </form>
+
+                        <form th:action="@{/manager/supervisor/game-weeks/{id}/end(id=${adminWeek.id})}"
+                              method="post"
+                              th:if="${adminWeek.status.name() != 'FINAL'}"
+                              onsubmit="return confirm('End this game and mark it final? Runs and rosters will remain saved.');">
+                            <button type="submit" class="danger">End</button>
+                        </form>
+
+                        <form th:action="@{/manager/supervisor/game-weeks/{id}/open-availability(id=${adminWeek.id})}"
+                              method="post"
+                              th:if="${adminWeek.status.name() != 'OPEN_FOR_AVAILABILITY'}"
+                              onsubmit="return confirm('Reopen this game for availability? This does not delete rosters, runs, or player responses.');">
+                            <button type="submit" class="secondary">Open Availability</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+        </div>
+    </details>
+
+    <details class="card collapsible-section" data-collapse-key="player-availability">
+        <summary class="collapsible-summary">
+            <h2>Player Availability</h2>
+        </summary>
+        <div class="collapsible-content">
+        <table>
+            <thead>
+            <tr><th>Player</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="a : ${availability}">
+                <td th:text="${a.player.name}">Player</td>
+                <td th:text="${a.status}">IN</td>
+            </tr>
+            </tbody>
+        </table>
+        <p th:if="${#lists.isEmpty(availability)}" class="muted">No players have marked availability yet.</p>
+        </div>
+    </details>
 </main>
+
+
+<script>
+    /*
+     * Remember which League Supervisor panels are open.
+     * This is intentionally limited to this page so team managers get the
+     * simpler team-only view without persistent supervisor controls.
+     */
+    document.addEventListener('DOMContentLoaded', function () {
+        const storagePrefix = 'sss.supervisor.collapse.';
+
+        document.querySelectorAll('details[data-collapse-key]').forEach(function (details) {
+            const key = storagePrefix + details.getAttribute('data-collapse-key');
+            const savedState = window.localStorage.getItem(key);
+
+            // If the user has opened/closed this panel before, restore it.
+            if (savedState === 'open') {
+                details.open = true;
+            } else if (savedState === 'closed') {
+                details.open = false;
+            }
+
+            // Save future changes so a supervisor can keep their own team
+            // expanded while hiding games/teams they are not focused on.
+            details.addEventListener('toggle', function () {
+                window.localStorage.setItem(key, details.open ? 'open' : 'closed');
+            });
+        });
+    });
+</script>
 
 <!-- Cache-bust the game audio script so phones pick up same-day game-management fixes immediately. -->
 <script th:src="@{/js/walkup-player.js(v=${#dates.createNow().time})}"></script>

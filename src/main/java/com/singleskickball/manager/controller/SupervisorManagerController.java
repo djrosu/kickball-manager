@@ -3,7 +3,6 @@ package com.singleskickball.manager.controller;
 import com.singleskickball.manager.dto.WalkUpSongInfo;
 import com.singleskickball.manager.model.GameState;
 import com.singleskickball.manager.model.GameWeek;
-import com.singleskickball.manager.model.Player;
 import com.singleskickball.manager.service.GameManagementService;
 import com.singleskickball.manager.service.GameWeekService;
 import com.singleskickball.manager.service.LineupService;
@@ -57,15 +56,27 @@ public class SupervisorManagerController {
         this.accessService = accessService;
     }
 
-    /** Shows the full supervisor dashboard for the current game week. */
+    /**
+     * Shows the full supervisor dashboard.
+     *
+     * By default the dashboard uses the app's current game week. The optional
+     * gameWeekId parameter lets the League Supervisor intentionally manage a
+     * prior or future game from the Game Administration section. This avoids
+     * database edits when a game is accidentally ended or the wrong week needs
+     * to be reviewed.
+     */
     @GetMapping
-    public String dashboard(Model model, Authentication authentication) {
-        Player currentPlayer = accessService.requireLeagueSupervisor(authentication);
+    public String dashboard(@RequestParam(required = false) Long gameWeekId,
+                            Model model,
+                            Authentication authentication) {
+        accessService.requireLeagueSupervisor(authentication);
 
-        GameWeek week = gameWeekService.getCurrentGameWeek();
+        GameWeek week = resolveWeek(gameWeekId);
         GameState gameState = gameManagementService.getGameState(week).orElse(null);
 
         model.addAttribute("week", week);
+        model.addAttribute("selectedGameWeekId", week.getId());
+        model.addAttribute("allGameWeeks", gameWeekService.getAllGameWeeks());
         model.addAttribute("availability", gameWeekService.getAvailabilityForWeek(week));
         model.addAttribute("teams", rosterService.getTeams(week));
         model.addAttribute("rosterEntries", rosterService.getRosterForWeek(week));
@@ -74,87 +85,92 @@ public class SupervisorManagerController {
         model.addAttribute("scores", gameManagementService.getScores(week));
         model.addAttribute("currentWalkUpSong", getCurrentWalkUpSongInfo(gameState));
 
-        // Show the Team Manager shortcut only when the logged-in supervisor is
-        // actually assigned to a team for this game. A League Supervisor can
-        // administer all teams from this page even if they are not serving as
-        // a Team Manager this week.
-        model.addAttribute("hasTeamManagerView", !accessService.manageableTeams(week, currentPlayer).isEmpty());
-
         return "manager/supervisor-dashboard";
     }
 
     /** Automatically creates balanced rosters for the current game. */
     @PostMapping("/generate-rosters")
-    public String generateRosters(Authentication authentication,
+    public String generateRosters(@RequestParam(required = false) Long gameWeekId,
+                                  Authentication authentication,
                                   RedirectAttributes redirectAttributes) {
         accessService.requireLeagueSupervisor(authentication);
-        var summary = rosterService.generateTwoTeamRoster(gameWeekService.getCurrentGameWeek());
+        GameWeek week = resolveWeek(gameWeekId);
+        var summary = rosterService.generateTwoTeamRoster(week);
         redirectAttributes.addFlashAttribute("message",
                 "Rosters created: " + summary.getPlayersAssigned() + " players assigned.");
-        return "redirect:/manager/supervisor";
+        return redirectToWeek(week);
     }
 
     /** Starts live game tracking. */
     @PostMapping("/game/start")
-    public String startGame(Authentication authentication,
+    public String startGame(@RequestParam(required = false) Long gameWeekId,
+                            Authentication authentication,
                             RedirectAttributes redirectAttributes) {
         accessService.requireLeagueSupervisor(authentication);
+        GameWeek week = resolveWeek(gameWeekId);
         try {
-            gameManagementService.startGame(gameWeekService.getCurrentGameWeek());
+            gameManagementService.startGame(week);
             redirectAttributes.addFlashAttribute("message", "Game started.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
-        return "redirect:/manager/supervisor";
+        return redirectToWeek(week);
     }
 
     /** Ends the game and marks the game week final. */
     @PostMapping("/game/end-game")
-    public String endGame(Authentication authentication,
+    public String endGame(@RequestParam(required = false) Long gameWeekId,
+                          Authentication authentication,
                           RedirectAttributes redirectAttributes) {
         accessService.requireLeagueSupervisor(authentication);
+        GameWeek week = resolveWeek(gameWeekId);
         try {
-            gameManagementService.endGame(gameWeekService.getCurrentGameWeek());
+            gameManagementService.endGame(week);
             redirectAttributes.addFlashAttribute("message", "Game ended. Runs and rosters were saved.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
-        return "redirect:/manager/supervisor";
+        return redirectToWeek(week);
     }
 
     /** Restarts live tracking without deleting rosters or runs. */
     @PostMapping("/game/restart")
-    public String restartGame(Authentication authentication,
+    public String restartGame(@RequestParam(required = false) Long gameWeekId,
+                              Authentication authentication,
                               RedirectAttributes redirectAttributes) {
         accessService.requireLeagueSupervisor(authentication);
+        GameWeek week = resolveWeek(gameWeekId);
         try {
-            gameManagementService.restartGame(gameWeekService.getCurrentGameWeek());
+            gameManagementService.restartGame(week);
             redirectAttributes.addFlashAttribute("message", "Game restarted. Existing rosters and runs were preserved.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
-        return "redirect:/manager/supervisor";
+        return redirectToWeek(week);
     }
 
     /** Non-AJAX fallback for advancing the current batter. */
     @PostMapping("/game/next-batter")
-    public String nextBatter(Authentication authentication,
+    public String nextBatter(@RequestParam(required = false) Long gameWeekId,
+                             Authentication authentication,
                              RedirectAttributes redirectAttributes) {
         accessService.requireLeagueSupervisor(authentication);
+        GameWeek week = resolveWeek(gameWeekId);
         try {
-            gameManagementService.nextBatter(gameWeekService.getCurrentGameWeek());
+            gameManagementService.nextBatter(week);
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
-        return "redirect:/manager/supervisor";
+        return redirectToWeek(week);
     }
 
     /** AJAX endpoint used by the supervisor dashboard's Next Batter button. */
     @PostMapping("/game/next-batter-info")
     @ResponseBody
-    public WalkUpSongInfo nextBatterInfo(Authentication authentication) {
+    public WalkUpSongInfo nextBatterInfo(@RequestParam(required = false) Long gameWeekId,
+                                         Authentication authentication) {
         accessService.requireLeagueSupervisor(authentication);
-        GameState state = gameManagementService.nextBatter(gameWeekService.getCurrentGameWeek());
+        GameState state = gameManagementService.nextBatter(resolveWeek(gameWeekId));
         if (state.getCurrentBatterRosterEntry() == null) {
             throw new IllegalStateException("No current batter is available.");
         }
@@ -163,63 +179,71 @@ public class SupervisorManagerController {
 
     /** Switches the current at-bat to the next team. */
     @PostMapping("/game/end-at-bat")
-    public String endAtBat(Authentication authentication,
+    public String endAtBat(@RequestParam(required = false) Long gameWeekId,
+                           Authentication authentication,
                            RedirectAttributes redirectAttributes) {
         accessService.requireLeagueSupervisor(authentication);
+        GameWeek week = resolveWeek(gameWeekId);
         try {
-            gameManagementService.endAtBat(gameWeekService.getCurrentGameWeek());
+            gameManagementService.endAtBat(week);
             redirectAttributes.addFlashAttribute("message", "At-bat ended. Switched teams.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
-        return "redirect:/manager/supervisor";
+        return redirectToWeek(week);
     }
 
     /** Adds one run to a player. */
     @PostMapping("/runs/{rosterEntryId}")
     public String addRun(@PathVariable Long rosterEntryId,
+                         @RequestParam(required = false) Long gameWeekId,
                          Authentication authentication) {
         accessService.requireLeagueSupervisor(authentication);
         rosterService.addRun(rosterEntryId);
-        return "redirect:/manager/supervisor";
+        return redirectToSelectedWeek(gameWeekId);
     }
 
     /** Removes one run from a player, never below zero. */
     @PostMapping("/runs/{rosterEntryId}/remove")
     public String removeRun(@PathVariable Long rosterEntryId,
+                            @RequestParam(required = false) Long gameWeekId,
                             Authentication authentication) {
         accessService.requireLeagueSupervisor(authentication);
         rosterService.removeRun(rosterEntryId);
-        return "redirect:/manager/supervisor";
+        return redirectToSelectedWeek(gameWeekId);
     }
 
     @PostMapping("/lineup/{rosterEntryId}/up")
     public String movePlayerUp(@PathVariable Long rosterEntryId,
+                               @RequestParam(required = false) Long gameWeekId,
                                Authentication authentication) {
         accessService.requireLeagueSupervisor(authentication);
         lineupService.moveUp(rosterEntryId);
-        return "redirect:/manager/supervisor";
+        return redirectToSelectedWeek(gameWeekId);
     }
 
     @PostMapping("/lineup/{rosterEntryId}/down")
     public String movePlayerDown(@PathVariable Long rosterEntryId,
+                                 @RequestParam(required = false) Long gameWeekId,
                                  Authentication authentication) {
         accessService.requireLeagueSupervisor(authentication);
         lineupService.moveDown(rosterEntryId);
-        return "redirect:/manager/supervisor";
+        return redirectToSelectedWeek(gameWeekId);
     }
 
     @PostMapping("/roster/{rosterEntryId}/remove")
     public String removeFromRoster(@PathVariable Long rosterEntryId,
+                                   @RequestParam(required = false) Long gameWeekId,
                                    Authentication authentication) {
         accessService.requireLeagueSupervisor(authentication);
         lineupService.removeFromRoster(rosterEntryId);
-        return "redirect:/manager/supervisor";
+        return redirectToSelectedWeek(gameWeekId);
     }
 
     @PostMapping("/teams/{teamId}/add-player")
     public String addPlayerToTeam(@PathVariable Long teamId,
                                   @RequestParam Long playerId,
+                                  @RequestParam(required = false) Long gameWeekId,
                                   Authentication authentication,
                                   RedirectAttributes redirectAttributes) {
         accessService.requireLeagueSupervisor(authentication);
@@ -229,7 +253,74 @@ public class SupervisorManagerController {
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
-        return "redirect:/manager/supervisor";
+        return redirectToSelectedWeek(gameWeekId);
+    }
+
+    /**
+     * Supervisor action for resuming any scheduled game week from the Game
+     * Administration section. Existing rosters and run totals are preserved.
+     */
+    @PostMapping("/game-weeks/{gameWeekId}/resume")
+    public String resumeGameWeek(@PathVariable Long gameWeekId,
+                                 Authentication authentication,
+                                 RedirectAttributes redirectAttributes) {
+        accessService.requireLeagueSupervisor(authentication);
+        GameWeek week = resolveWeek(gameWeekId);
+        try {
+            gameManagementService.resumeGame(week);
+            redirectAttributes.addFlashAttribute("message", "Game resumed for " + week.getGameDate() + ".");
+        } catch (RuntimeException ex) {
+            redirectAttributes.addFlashAttribute("error", ex.getMessage());
+        }
+        return redirectToWeek(week);
+    }
+
+    /** Restarts a selected game week without deleting rosters or run totals. */
+    @PostMapping("/game-weeks/{gameWeekId}/restart")
+    public String restartGameWeek(@PathVariable Long gameWeekId,
+                                  Authentication authentication,
+                                  RedirectAttributes redirectAttributes) {
+        accessService.requireLeagueSupervisor(authentication);
+        GameWeek week = resolveWeek(gameWeekId);
+        try {
+            gameManagementService.restartGame(week);
+            redirectAttributes.addFlashAttribute("message", "Game restarted for " + week.getGameDate() + ".");
+        } catch (RuntimeException ex) {
+            redirectAttributes.addFlashAttribute("error", ex.getMessage());
+        }
+        return redirectToWeek(week);
+    }
+
+    /** Ends a selected game week and marks it final. */
+    @PostMapping("/game-weeks/{gameWeekId}/end")
+    public String endGameWeek(@PathVariable Long gameWeekId,
+                              Authentication authentication,
+                              RedirectAttributes redirectAttributes) {
+        accessService.requireLeagueSupervisor(authentication);
+        GameWeek week = resolveWeek(gameWeekId);
+        try {
+            gameManagementService.endGame(week);
+            redirectAttributes.addFlashAttribute("message", "Game ended for " + week.getGameDate() + ".");
+        } catch (RuntimeException ex) {
+            redirectAttributes.addFlashAttribute("error", ex.getMessage());
+        }
+        return redirectToWeek(week);
+    }
+
+    /** Reopens a selected game week for availability without deleting data. */
+    @PostMapping("/game-weeks/{gameWeekId}/open-availability")
+    public String reopenGameWeek(@PathVariable Long gameWeekId,
+                                 Authentication authentication,
+                                 RedirectAttributes redirectAttributes) {
+        accessService.requireLeagueSupervisor(authentication);
+        GameWeek week = resolveWeek(gameWeekId);
+        try {
+            gameManagementService.reopenForAvailability(week);
+            redirectAttributes.addFlashAttribute("message", "Game reopened for availability for " + week.getGameDate() + ".");
+        } catch (RuntimeException ex) {
+            redirectAttributes.addFlashAttribute("error", ex.getMessage());
+        }
+        return redirectToWeek(week);
     }
 
     private WalkUpSongInfo getCurrentWalkUpSongInfo(GameState gameState) {
@@ -237,5 +328,20 @@ public class SupervisorManagerController {
             return null;
         }
         return walkUpSongService.getWalkUpSongInfo(gameState);
+    }
+
+    /** Resolves a requested game week or falls back to the normal current week. */
+    private GameWeek resolveWeek(Long gameWeekId) {
+        return gameWeekId == null ? gameWeekService.getCurrentGameWeek() : gameWeekService.getGameWeek(gameWeekId);
+    }
+
+    /** Keeps the supervisor on the selected game after an action completes. */
+    private String redirectToWeek(GameWeek week) {
+        return "redirect:/manager/supervisor?gameWeekId=" + week.getId();
+    }
+
+    /** Redirect helper for actions where the week id is optional. */
+    private String redirectToSelectedWeek(Long gameWeekId) {
+        return gameWeekId == null ? "redirect:/manager/supervisor" : "redirect:/manager/supervisor?gameWeekId=" + gameWeekId;
     }
 }
