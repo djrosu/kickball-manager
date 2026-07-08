@@ -112,6 +112,8 @@
         return {
             playerId: button.dataset.playerId || null,
             rosterEntryId: button.dataset.rosterEntryId || null,
+            battingTeamId: button.dataset.battingTeamId || null,
+            battingTeamColor: button.dataset.battingTeamColor || null,
             playerName: button.dataset.playerName || 'Player',
             artist: button.dataset.artist || '',
             title: button.dataset.title || '',
@@ -205,15 +207,22 @@
                 if (currentInning && info.inning) {
                     currentInning.textContent = info.inning;
                 }
-                        if (playCurrentButton) {
+                if (playCurrentButton) {
                     updateButtonAudioData(playCurrentButton, info);
                     playCurrentButton.disabled = !(info.introPlayable || info.playable);
                 }
 
                 // Update the roster highlight before audio starts so the manager
-                // can immediately see who is at bat while the intro/walk-up plays.
-                updateCurrentBatterIndicator(info);
+                // can immediately see who is at bat while audio plays.
+                const highlighted = updateCurrentBatterIndicator(info, statusElement);
+
+                // Even if the highlight fails, still play the audio. The status
+                // text will tell us which ids came back from the server.
                 await playSequence(info, statusElement);
+
+                if (!highlighted && statusElement) {
+                    statusElement.textContent += ' Highlight was not updated; refresh the page to resync.';
+                }
             } catch (error) {
                 if (statusElement) {
                     statusElement.textContent = error.message || 'Unable to advance to next batter.';
@@ -223,34 +232,44 @@
     }
 
     function updateButtonAudioData(button, info) {
-        button.dataset.playerId = info.playerId || '';
-        button.dataset.rosterEntryId = info.rosterEntryId || '';
-        button.dataset.playerName = info.playerName || '';
-        button.dataset.artist = info.artist || '';
-        button.dataset.title = info.title || '';
-        button.dataset.introUrl = info.introPlayable ? info.introAudioUrl : '';
-        button.dataset.songUrl = info.playable ? info.audioUrl : '';
+        button.dataset.playerId = valueAsText(info && info.playerId);
+        button.dataset.rosterEntryId = valueAsText(info && info.rosterEntryId);
+        button.dataset.battingTeamId = valueAsText(info && info.battingTeamId);
+        button.dataset.battingTeamColor = valueAsText(info && info.battingTeamColor);
+        button.dataset.playerName = valueAsText(info && info.playerName);
+        button.dataset.artist = valueAsText(info && info.artist);
+        button.dataset.title = valueAsText(info && info.title);
+        button.dataset.introUrl = info && info.introPlayable ? info.introAudioUrl : '';
+        button.dataset.songUrl = info && info.playable ? info.audioUrl : '';
     }
 
     /**
      * Updates the highlighted row in the roster table after AJAX Next Batter.
-     * Without this, the text at the top of the page changes, but the lineup row
-     * still visually marks the old batter until the whole page is reloaded.
-     */
-    /**
-     * Updates the highlighted row in the roster table after AJAX Next Batter.
      *
-     * We deliberately use several matching strategies. During active game play,
-     * the AJAX response should contain the current rosterEntryId, which is the
-     * most precise identifier. If a browser has stale markup or an older page
-     * shape, we fall back to matching by team id + player id, then player id.
+     * Important implementation detail:
+     * We find the next row BEFORE clearing the old highlight. Earlier versions
+     * cleared the old row first. If the AJAX response did not contain the exact
+     * roster-entry id, the page ended up with no highlighted row at all. This
+     * version leaves the old highlight in place if it cannot find the new row,
+     * which is safer during a live game.
      */
-    function updateCurrentBatterIndicator(info) {
+    function updateCurrentBatterIndicator(info, statusElement) {
         const rosterEntryIdText = valueAsText(info && info.rosterEntryId);
         const teamIdText = valueAsText(info && info.battingTeamId);
         const playerIdText = valueAsText(info && info.playerId);
 
-        // Clear the old visual state and hide every At Bat badge.
+        const nextRow = findCurrentBatterRow(rosterEntryIdText, teamIdText, playerIdText);
+        if (!nextRow) {
+            if (statusElement) {
+                statusElement.textContent = 'Advanced to ' + (info && info.playerName ? info.playerName : 'next batter')
+                    + ', but could not find roster row. ids: rosterEntryId='
+                    + rosterEntryIdText + ', teamId=' + teamIdText + ', playerId=' + playerIdText + '.';
+            }
+            return false;
+        }
+
+        // Clear the old visual state and hide every At Bat badge only after we
+        // know the replacement row exists.
         document.querySelectorAll('.lineup-row.current-batter').forEach(function (row) {
             row.classList.remove('current-batter');
             row.removeAttribute('aria-current');
@@ -258,11 +277,6 @@
         document.querySelectorAll('.current-batter-badge').forEach(function (badge) {
             badge.style.display = 'none';
         });
-
-        const nextRow = findCurrentBatterRow(rosterEntryIdText, teamIdText, playerIdText);
-        if (!nextRow) {
-            return;
-        }
 
         nextRow.classList.add('current-batter');
         nextRow.setAttribute('aria-current', 'true');
@@ -274,6 +288,7 @@
 
         // Keep the current batter visible on smaller phone screens.
         nextRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return true;
     }
 
     function valueAsText(value) {
@@ -282,7 +297,7 @@
 
     function findCurrentBatterRow(rosterEntryIdText, teamIdText, playerIdText) {
         if (rosterEntryIdText) {
-            const byRosterEntry = document.querySelector('[data-roster-entry-id="' + cssEscape(rosterEntryIdText) + '"]');
+            const byRosterEntry = document.querySelector('.lineup-row[data-roster-entry-id="' + cssEscape(rosterEntryIdText) + '"]');
             if (byRosterEntry) {
                 return byRosterEntry;
             }
@@ -290,7 +305,7 @@
 
         if (teamIdText && playerIdText) {
             const byTeamAndPlayer = document.querySelector(
-                '[data-team-id="' + cssEscape(teamIdText) + '"][data-player-id="' + cssEscape(playerIdText) + '"]'
+                '.lineup-row[data-team-id="' + cssEscape(teamIdText) + '"][data-player-id="' + cssEscape(playerIdText) + '"]'
             );
             if (byTeamAndPlayer) {
                 return byTeamAndPlayer;
@@ -298,7 +313,7 @@
         }
 
         if (playerIdText) {
-            const byPlayer = document.querySelector('[data-player-id="' + cssEscape(playerIdText) + '"]');
+            const byPlayer = document.querySelector('.lineup-row[data-player-id="' + cssEscape(playerIdText) + '"]');
             if (byPlayer) {
                 return byPlayer;
             }
@@ -339,6 +354,7 @@
     window.WalkupPlayer = {
         stop: stop,
         playSequence: playSequence,
+        updateCurrentBatterIndicator: updateCurrentBatterIndicator,
         init: init
     };
 

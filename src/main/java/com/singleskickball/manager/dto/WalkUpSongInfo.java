@@ -3,26 +3,48 @@ package com.singleskickball.manager.dto;
 /**
  * Lightweight DTO returned to the manager dashboard when a batter comes up.
  *
- * The browser uses this object for two jobs:
- * 1. update the visible current batter / batting team indicators without a full
- *    page reload, and
- * 2. play two optional audio files in order: intro clip, then walk-up song.
+ * This object intentionally carries two kinds of information:
+ *
+ * 1. Audio metadata
+ *    - intro audio URL
+ *    - walk-up song URL
+ *    - player/song display text
+ *
+ * 2. Live-game identity metadata
+ *    - rosterEntryId
+ *    - battingTeamId
+ *    - battingTeamColor
+ *    - inning
+ *
+ * The identity fields are important because the manager dashboard advances the
+ * batter asynchronously. After the AJAX call returns, JavaScript needs the exact
+ * roster-entry id to move the highlighted "At Bat" badge without reloading the
+ * whole page.
  */
 public class WalkUpSongInfo {
 
-    /** Player-level identity used for intro file naming. */
-    private Long playerId;
-    private String playerName;
-
-    /** Roster-entry identity used to highlight the current row on the lineup. */
+    /** TeamRosterEntry id for the current batter. This is the most precise UI key. */
     private Long rosterEntryId;
 
-    /** Current live-game context after the advance. */
+    /** Team id for the batting team. Used as a fallback UI key with playerId. */
     private Long battingTeamId;
+
+    /** Team color/name displayed in the Current At-Bat card. */
     private String battingTeamColor;
+
+    /** Current inning displayed in the Current At-Bat card. */
     private Integer inning;
 
+    /** Player id for the current batter. Used by intro file convention and UI fallback. */
+    private Long playerId;
+
+    /** Display name, usually nickname when available. */
+    private String playerName;
+
+    /** Player-entered walk-up song artist. */
     private String artist;
+
+    /** Player-entered walk-up song title. */
     private String title;
 
     /** Browser URL to the player's walk-up song MP3, if one exists. */
@@ -32,12 +54,6 @@ public class WalkUpSongInfo {
     /** Browser URL to the player's intro MP3, if one exists. */
     private String introAudioUrl;
     private boolean introPlayable;
-
-    public Long getPlayerId() { return playerId; }
-    public void setPlayerId(Long playerId) { this.playerId = playerId; }
-
-    public String getPlayerName() { return playerName; }
-    public void setPlayerName(String playerName) { this.playerName = playerName; }
 
     public Long getRosterEntryId() { return rosterEntryId; }
     public void setRosterEntryId(Long rosterEntryId) { this.rosterEntryId = rosterEntryId; }
@@ -50,6 +66,12 @@ public class WalkUpSongInfo {
 
     public Integer getInning() { return inning; }
     public void setInning(Integer inning) { this.inning = inning; }
+
+    public Long getPlayerId() { return playerId; }
+    public void setPlayerId(Long playerId) { this.playerId = playerId; }
+
+    public String getPlayerName() { return playerName; }
+    public void setPlayerName(String playerName) { this.playerName = playerName; }
 
     public String getArtist() { return artist; }
     public void setArtist(String artist) { this.artist = artist; }

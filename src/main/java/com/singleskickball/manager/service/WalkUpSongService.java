@@ -3,6 +3,7 @@ package com.singleskickball.manager.service;
 import com.singleskickball.manager.dto.WalkUpSongInfo;
 import com.singleskickball.manager.model.GameState;
 import com.singleskickball.manager.model.Player;
+import com.singleskickball.manager.model.Team;
 import com.singleskickball.manager.model.TeamRosterEntry;
 import com.singleskickball.manager.repository.TeamRosterEntryRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,8 +15,10 @@ import java.nio.file.Path;
 /**
  * Provides walk-up audio metadata for the manager game screen.
  *
- * The service returns browser URLs only when files actually exist. That keeps
- * the JavaScript simple: play intro if present, then play song if present.
+ * This service is intentionally the single place that knows how to translate a
+ * Player/TeamRosterEntry/GameState into browser-ready audio data. Keeping this
+ * logic here prevents the controller and JavaScript from having to guess where
+ * intro files live or how a stored walk-up filename becomes a public URL.
  */
 @Service
 public class WalkUpSongService {
@@ -30,8 +33,32 @@ public class WalkUpSongService {
     }
 
     /**
-     * Looks up walk-up audio for a roster entry. This is used when the current
-     * batter is represented by a TeamRosterEntry id.
+     * Builds the current-batter DTO from the live GameState.
+     *
+     * This method is the important fix for the same-at-bat Next Batter highlight
+     * problem. The AJAX endpoint must return the current batter's exact
+     * TeamRosterEntry id after advancement, not just the player name/audio data.
+     */
+    public WalkUpSongInfo getWalkUpSongInfo(GameState gameState) {
+        if (gameState == null || gameState.getCurrentBatterRosterEntry() == null) {
+            return null;
+        }
+
+        WalkUpSongInfo info = getWalkUpSongInfo(gameState.getCurrentBatterRosterEntry().getId());
+        info.setInning(gameState.getInning());
+
+        Team battingTeam = gameState.getCurrentBattingTeam();
+        if (battingTeam != null) {
+            info.setBattingTeamId(battingTeam.getId());
+            info.setBattingTeamColor(battingTeam.getColor());
+        }
+
+        return info;
+    }
+
+    /**
+     * Looks up walk-up audio and roster identity for a roster entry. This is
+     * used for the current batter on the live manager dashboard.
      */
     public WalkUpSongInfo getWalkUpSongInfo(Long rosterEntryId) {
         TeamRosterEntry entry = rosterEntryRepository.findById(rosterEntryId)
@@ -39,35 +66,18 @@ public class WalkUpSongService {
 
         WalkUpSongInfo info = getWalkUpSongInfoForPlayer(entry.getPlayer());
         info.setRosterEntryId(entry.getId());
+
         if (entry.getTeam() != null) {
             info.setBattingTeamId(entry.getTeam().getId());
             info.setBattingTeamColor(entry.getTeam().getColor());
         }
+
         return info;
     }
 
     /**
-     * Builds walk-up metadata for the current live game state.
-     *
-     * This wrapper adds inning and current batting team data so the AJAX
-     * response can update the dashboard indicators without requiring a reload.
-     */
-    public WalkUpSongInfo getWalkUpSongInfo(GameState state) {
-        if (state == null || state.getCurrentBatterRosterEntry() == null) {
-            throw new IllegalArgumentException("No current batter is available.");
-        }
-
-        WalkUpSongInfo info = getWalkUpSongInfo(state.getCurrentBatterRosterEntry().getId());
-        info.setInning(state.getInning());
-        if (state.getCurrentBattingTeam() != null) {
-            info.setBattingTeamId(state.getCurrentBattingTeam().getId());
-            info.setBattingTeamColor(state.getCurrentBattingTeam().getColor());
-        }
-        return info;
-    }
-
-    /**
-     * Builds the DTO from a player record and convention-based intro file.
+     * Builds player-level audio metadata. This is also used by manager upload
+     * pages where there may not be an active roster entry.
      */
     public WalkUpSongInfo getWalkUpSongInfoForPlayer(Player player) {
         WalkUpSongInfo info = new WalkUpSongInfo();
@@ -83,8 +93,13 @@ public class WalkUpSongService {
     }
 
     /**
-     * Intro clips are not stored in the database. They are discovered by this
-     * filename convention: /app/uploads/walkup-intros/{playerId}.mp3.
+     * Intro clips are discovered by convention and are not stored in the DB:
+     *
+     *   /app/uploads/walkup-intros/{playerId}.mp3
+     *
+     * Public browser URL:
+     *
+     *   /uploads/walkup-intros/{playerId}.mp3
      */
     private void applyIntroAudio(Player player, WalkUpSongInfo info) {
         if (player.getId() == null) {
@@ -106,7 +121,9 @@ public class WalkUpSongService {
     }
 
     /**
-     * Walk-up song clips are linked from the Player database record.
+     * Walk-up song clips are linked from the Player database record. The upload
+     * page stores a filename in walkUpSongFilePath, but this method also supports
+     * absolute URLs and already-rooted /uploads URLs.
      */
     private void applyWalkUpSongAudio(Player player, WalkUpSongInfo info) {
         String filePath = player.getWalkUpSongFilePath();
@@ -120,6 +137,11 @@ public class WalkUpSongService {
 
     /**
      * Converts a stored file path into something the browser can request.
+     *
+     * Supported examples:
+     * - https://example.com/song.mp3       -> returned as-is
+     * - /uploads/walkup-songs/song.mp3    -> returned as-is
+     * - song.mp3                          -> /uploads/walkup-songs/song.mp3
      */
     private String toBrowserUrl(String filePath) {
         if (filePath.startsWith("http://") || filePath.startsWith("https://") || filePath.startsWith("/")) {
