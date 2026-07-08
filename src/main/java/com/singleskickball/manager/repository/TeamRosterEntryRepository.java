@@ -46,9 +46,9 @@ public interface TeamRosterEntryRepository extends JpaRepository<TeamRosterEntry
     List<Object[]> findTeamRunTotals(GameWeek gameWeek);
 
     /** Top run leaders across all saved weekly roster entries. */
-    @Query("select e.player.name, coalesce(sum(e.runsScored), 0) " +
+    @Query("select e.player.nickname, coalesce(sum(e.runsScored), 0) " +
             "from TeamRosterEntry e " +
-            "group by e.player.id, e.player.name " +
+            "group by e.player.id, e.player.nickname " +
             "order by coalesce(sum(e.runsScored), 0) desc, e.player.nickname asc")
     List<Object[]> findRunLeaders();
 
