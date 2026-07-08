@@ -88,7 +88,16 @@ public class RosterBuilderService {
 
         for (int i = 0; i < teams.size() && i < activeManagers.size(); i++) {
             Player manager = activeManagers.get(i);
-            assignPlayer(teams.get(i), manager, statsByTeamId.get(teams.get(i).getId()), seasonRunsByPlayerId);
+            Team team = teams.get(i);
+
+            // Assign this manager as both the person controlling the team and
+            // as a player in the batting roster. This is the foundation for the
+            // Team Manager role: non-supervisor managers only see/manage teams
+            // where teams.manager_player_id points at their Player row.
+            team.setManagerPlayer(manager);
+            teamRepository.save(team);
+
+            assignPlayer(team, manager, statsByTeamId.get(team.getId()), seasonRunsByPlayerId);
             assignedPlayerIds.add(manager.getId());
             summary.setPlayersAssigned(summary.getPlayersAssigned() + 1);
         }
@@ -137,6 +146,7 @@ public class RosterBuilderService {
         gameWeekRepository.save(week);
 
         summary.addNote("Rosters created for " + teams.size() + " teams.");
+        summary.addNote("One Team Manager was assigned to each team when manager players were available.");
         summary.addNote("Prior run totals were considered after gender and team-size balance.");
         return summary;
     }

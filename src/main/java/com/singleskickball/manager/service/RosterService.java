@@ -57,7 +57,11 @@ public class RosterService {
         gameManagementService.addRun(rosterEntryId);
     }
 
+    public void removeRun(Long rosterEntryId) {
+        gameManagementService.removeRun(rosterEntryId);
+    }
+
     public List<Object[]> getTopRunLeaders() {
-        return rosterEntryRepository.findRunLeaders().stream().limit(9).toList();
+        return rosterEntryRepository.findRunLeaders().stream().limit(10).toList();
     }
 }

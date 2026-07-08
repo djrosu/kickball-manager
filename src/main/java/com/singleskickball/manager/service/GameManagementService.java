@@ -203,6 +203,20 @@ public class GameManagementService {
         rosterEntryRepository.save(entry);
     }
 
+    /**
+     * Removes one run from the selected player/roster entry.
+     *
+     * The count never goes below zero. This gives scorekeepers a quick way to
+     * correct an accidental tap without directly editing the database.
+     */
+    @Transactional
+    public void removeRun(Long rosterEntryId) {
+        TeamRosterEntry entry = rosterEntryRepository.findById(rosterEntryId)
+                .orElseThrow(() -> new IllegalArgumentException("Roster entry not found."));
+        entry.setRunsScored(Math.max(0, entry.getRunsScored() - 1));
+        rosterEntryRepository.save(entry);
+    }
+
     /** Returns current score by team based on roster entry run totals. */
     public List<TeamScore> getScores(GameWeek week) {
         Map<Long, Integer> totalsByTeamId = rosterEntryRepository.findTeamRunTotals(week)
