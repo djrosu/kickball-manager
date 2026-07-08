@@ -49,7 +49,7 @@ public interface TeamRosterEntryRepository extends JpaRepository<TeamRosterEntry
     @Query("select e.player.name, coalesce(sum(e.runsScored), 0) " +
             "from TeamRosterEntry e " +
             "group by e.player.id, e.player.name " +
-            "order by coalesce(sum(e.runsScored), 0) desc, e.player.name asc")
+            "order by coalesce(sum(e.runsScored), 0) desc, e.player.nickname asc")
     List<Object[]> findRunLeaders();
 
     /** Player-id keyed run totals used by the roster builder. */

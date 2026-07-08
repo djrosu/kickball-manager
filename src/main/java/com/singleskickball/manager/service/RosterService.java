@@ -62,6 +62,6 @@ public class RosterService {
     }
 
     public List<Object[]> getTopRunLeaders() {
-        return rosterEntryRepository.findRunLeaders().stream().limit(10).toList();
+        return rosterEntryRepository.findRunLeaders().stream().limit(8).toList();
     }
 }
