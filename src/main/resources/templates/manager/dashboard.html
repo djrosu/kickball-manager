@@ -23,6 +23,15 @@
             justify-content: flex-end;
         }
 
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: .65rem .9rem;
+            border-radius: 8px;
+            font-weight: 700;
+        }
+
         .audio-panel {
             border: 1px solid var(--border);
             border-radius: 12px;
@@ -194,13 +203,36 @@
                 </button>
             </form>
 
-            <form th:action="@{/manager/game/start}" method="post">
+            <form th:action="@{/manager/game/start}" method="post"
+                  th:if="${gameState == null}">
                 <button type="submit"
                         class="secondary"
-                        th:disabled="${gameState != null}"
-                        th:title="${gameState != null ? 'Game is already running.' : 'Start live game tracking.'}">
-                    <span th:if="${gameState == null}">Start Game</span>
-                    <span th:if="${gameState != null}">Game Running</span>
+                        title="Start live game tracking.">
+                    Start Game
+                </button>
+            </form>
+
+            <span th:if="${gameState != null}" class="secondary status-pill">Game Running</span>
+
+            <form th:action="@{/manager/game/restart}"
+                  method="post"
+                  th:if="${gameState != null}"
+                  onsubmit="return confirm('Restart live game tracking for this week? Existing rosters and runs will be preserved, but the current at-bat will return to the first team and first batter.');">
+                <button type="submit"
+                        class="secondary"
+                        title="Restart live game tracking without deleting rosters or runs.">
+                    Restart Game
+                </button>
+            </form>
+
+            <form th:action="@{/manager/game/end-game}"
+                  method="post"
+                  th:if="${gameState != null}"
+                  onsubmit="return confirm('End this game? Run totals and rosters will be saved, and the app will move on to the next scheduled game week.');">
+                <button type="submit"
+                        class="danger"
+                        title="End the current game and save final run totals.">
+                    End Game
                 </button>
             </form>
         </div>

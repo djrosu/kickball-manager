@@ -11,15 +11,16 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Builds weekly rosters from availability, manager assignments, and teammate
- * preferences.
+ * Builds weekly rosters from availability, manager assignments, teammate
+ * preferences, and prior season run totals.
  *
  * Design priorities, in order:
  * 1. Create the correct number of teams.
  * 2. Put one manager/player on each team.
  * 3. Keep gender counts as even as possible across teams.
  * 4. Keep team sizes as even as possible.
- * 5. Honor mutual teammate preferences when doing so does not badly hurt balance.
+ * 5. Gently split high run scorers across teams.
+ * 6. Honor mutual teammate preferences when doing so does not badly hurt balance.
  *
  * The algorithm is intentionally readable and deterministic. That matters more
  * than mathematical perfection at this stage because managers need to understand
@@ -29,7 +30,7 @@ import java.util.stream.Collectors;
 @Service
 public class RosterBuilderService {
 
-    private static final List<String> DEFAULT_TEAM_COLORS = List.of("Yellow", "Red");
+    private static final List<String> DEFAULT_TEAM_COLORS = List.of("Red", "Yellow");
 
     private final PlayerAvailabilityRepository availabilityRepository;
     private final PlayerPreferenceRepository preferenceRepository;
@@ -37,19 +38,22 @@ public class RosterBuilderService {
     private final TeamRepository teamRepository;
     private final TeamRosterEntryRepository rosterEntryRepository;
     private final GameStateRepository gameStateRepository;
+    private final GameWeekRepository gameWeekRepository;
 
     public RosterBuilderService(PlayerAvailabilityRepository availabilityRepository,
                                 PlayerPreferenceRepository preferenceRepository,
                                 PlayerRepository playerRepository,
                                 TeamRepository teamRepository,
                                 TeamRosterEntryRepository rosterEntryRepository,
-                                GameStateRepository gameStateRepository) {
+                                GameStateRepository gameStateRepository,
+                                GameWeekRepository gameWeekRepository) {
         this.availabilityRepository = availabilityRepository;
         this.preferenceRepository = preferenceRepository;
         this.playerRepository = playerRepository;
         this.teamRepository = teamRepository;
         this.rosterEntryRepository = rosterEntryRepository;
         this.gameStateRepository = gameStateRepository;
+        this.gameWeekRepository = gameWeekRepository;
     }
 
     /**
@@ -57,8 +61,7 @@ public class RosterBuilderService {
      *
      * This method clears existing roster/game-state data for the week because it
      * represents a manager explicitly asking the app to auto-create rosters.
-     * Once a game is in progress, the UI should avoid calling this method unless
-     * the manager intentionally wants to start over.
+     * The dashboard disables this action once a game starts.
      */
     @Transactional
     public RosterGenerationSummary generateDefaultRoster(GameWeek week) {
@@ -69,17 +72,24 @@ public class RosterBuilderService {
         List<Team> teams = createTeams(week, DEFAULT_TEAM_COLORS);
         summary.setTeamsCreated(teams.size());
 
+        Map<Long, Integer> seasonRunsByPlayerId = loadSeasonRunTotals();
         Map<Long, TeamStats> statsByTeamId = teams.stream()
                 .collect(Collectors.toMap(Team::getId, TeamStats::new, (a, b) -> a, LinkedHashMap::new));
 
         Set<Long> assignedPlayerIds = new HashSet<>();
-        List<Player> activeManagers = playerRepository.findByManagerTrueAndActiveTrueOrderByNameAsc();
 
-        // One manager goes on each team first. The app assumes the manager count
-        // equals the team count, but this guard keeps the app safe if that changes.
+        // Put one manager on each team. Managers are also sorted by season runs
+        // so if one manager is a high scorer, that run strength starts on a
+        // different team than the next high manager when possible.
+        List<Player> activeManagers = playerRepository.findByManagerTrueAndActiveTrueOrderByNameAsc()
+                .stream()
+                .sorted(playerStrengthComparator(seasonRunsByPlayerId))
+                .toList();
+
         for (int i = 0; i < teams.size() && i < activeManagers.size(); i++) {
-            assignPlayer(teams.get(i), activeManagers.get(i), statsByTeamId.get(teams.get(i).getId()));
-            assignedPlayerIds.add(activeManagers.get(i).getId());
+            Player manager = activeManagers.get(i);
+            assignPlayer(teams.get(i), manager, statsByTeamId.get(teams.get(i).getId()), seasonRunsByPlayerId);
+            assignedPlayerIds.add(manager.getId());
             summary.setPlayersAssigned(summary.getPlayersAssigned() + 1);
         }
 
@@ -89,7 +99,7 @@ public class RosterBuilderService {
                 .map(PlayerAvailability::getPlayer)
                 .filter(Player::isActive)
                 .filter(player -> !assignedPlayerIds.contains(player.getId()))
-                .sorted(Comparator.comparing(Player::getName, String.CASE_INSENSITIVE_ORDER))
+                .sorted(playerStrengthComparator(seasonRunsByPlayerId))
                 .toList();
 
         Map<Long, Player> availableById = availablePlayers.stream()
@@ -97,20 +107,37 @@ public class RosterBuilderService {
 
         List<PlayerPreference> preferences = preferenceRepository.findByGameWeek(week);
         Map<Long, Long> preferredByPlayerId = preferences.stream()
-                .collect(Collectors.toMap(p -> p.getPlayer().getId(), p -> p.getPreferredPlayer().getId(), (a, b) -> a));
+                .collect(Collectors.toMap(
+                        p -> p.getPlayer().getId(),
+                        p -> p.getPreferredPlayer().getId(),
+                        (a, b) -> a
+                ));
 
         List<List<Player>> assignmentGroups = buildAssignmentGroups(availablePlayers, availableById, preferredByPlayerId, summary);
 
+        // Assign stronger groups first so the run-total balancing has a chance
+        // to split the biggest run contributors across teams.
+        assignmentGroups = assignmentGroups.stream()
+                .sorted(Comparator
+                        .comparingInt((List<Player> group) -> groupSeasonRuns(group, seasonRunsByPlayerId))
+                        .reversed()
+                        .thenComparing(group -> group.stream().map(Player::getName).collect(Collectors.joining("|"))))
+                .toList();
+
         for (List<Player> group : assignmentGroups) {
-            Team bestTeam = chooseBestTeamForGroup(teams, statsByTeamId, group);
+            Team bestTeam = chooseBestTeamForGroup(teams, statsByTeamId, group, seasonRunsByPlayerId);
             TeamStats teamStats = statsByTeamId.get(bestTeam.getId());
             for (Player player : group) {
-                assignPlayer(bestTeam, player, teamStats);
+                assignPlayer(bestTeam, player, teamStats, seasonRunsByPlayerId);
                 summary.setPlayersAssigned(summary.getPlayersAssigned() + 1);
             }
         }
 
+        week.setStatus(GameWeekStatus.ROSTERS_CREATED);
+        gameWeekRepository.save(week);
+
         summary.addNote("Rosters created for " + teams.size() + " teams.");
+        summary.addNote("Prior run totals were considered after gender and team-size balance.");
         return summary;
     }
 
@@ -165,21 +192,32 @@ public class RosterBuilderService {
         return groups;
     }
 
-    private Team chooseBestTeamForGroup(List<Team> teams, Map<Long, TeamStats> statsByTeamId, List<Player> group) {
+    private Team chooseBestTeamForGroup(List<Team> teams,
+                                        Map<Long, TeamStats> statsByTeamId,
+                                        List<Player> group,
+                                        Map<Long, Integer> seasonRunsByPlayerId) {
         return teams.stream()
                 .min(Comparator
-                        .comparingInt((Team team) -> scoreTeamAfterAddingGroup(statsByTeamId.get(team.getId()), group))
+                        .comparingInt((Team team) -> scoreTeamAfterAddingGroup(
+                                statsByTeamId.get(team.getId()),
+                                group,
+                                seasonRunsByPlayerId
+                        ))
                         .thenComparing(Team::getId))
                 .orElseThrow(() -> new IllegalStateException("No teams were created."));
     }
 
-    private int scoreTeamAfterAddingGroup(TeamStats stats, List<Player> group) {
+    private int scoreTeamAfterAddingGroup(TeamStats stats,
+                                          List<Player> group,
+                                          Map<Long, Integer> seasonRunsByPlayerId) {
         int projectedSize = stats.size;
         int projectedMale = stats.maleCount;
         int projectedFemale = stats.femaleCount;
+        int projectedSeasonRuns = stats.seasonRunTotal;
 
         for (Player player : group) {
             projectedSize++;
+            projectedSeasonRuns += seasonRunsByPlayerId.getOrDefault(player.getId(), 0);
             if (player.getGender() == Gender.FEMALE) {
                 projectedFemale++;
             } else if (player.getGender() == Gender.MALE) {
@@ -189,18 +227,47 @@ public class RosterBuilderService {
 
         int genderImbalance = Math.abs(projectedMale - projectedFemale);
 
-        // Lower is better. Gender imbalance gets more weight than raw team size.
-        return (genderImbalance * 5) + (projectedSize * 2);
+        // Lower is better.
+        // Gender imbalance intentionally has the strongest weight. Prior runs
+        // are considered, but they should not override a good male/female ratio.
+        return (genderImbalance * 1000)
+                + (projectedSize * 100)
+                + projectedSeasonRuns;
     }
 
-    private void assignPlayer(Team team, Player player, TeamStats stats) {
+    private void assignPlayer(Team team,
+                              Player player,
+                              TeamStats stats,
+                              Map<Long, Integer> seasonRunsByPlayerId) {
         TeamRosterEntry entry = new TeamRosterEntry();
         entry.setTeam(team);
         entry.setPlayer(player);
         entry.setBattingOrder(stats.size + 1);
         entry.setRunsScored(0);
         rosterEntryRepository.save(entry);
-        stats.add(player);
+        stats.add(player, seasonRunsByPlayerId.getOrDefault(player.getId(), 0));
+    }
+
+    private Comparator<Player> playerStrengthComparator(Map<Long, Integer> seasonRunsByPlayerId) {
+        return Comparator
+                .comparingInt((Player player) -> seasonRunsByPlayerId.getOrDefault(player.getId(), 0))
+                .reversed()
+                .thenComparing(Player::getName, String.CASE_INSENSITIVE_ORDER);
+    }
+
+    private int groupSeasonRuns(List<Player> group, Map<Long, Integer> seasonRunsByPlayerId) {
+        return group.stream()
+                .mapToInt(player -> seasonRunsByPlayerId.getOrDefault(player.getId(), 0))
+                .sum();
+    }
+
+    private Map<Long, Integer> loadSeasonRunTotals() {
+        return rosterEntryRepository.findPlayerRunTotals()
+                .stream()
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],
+                        row -> ((Number) row[1]).intValue()
+                ));
     }
 
     private static class TeamStats {
@@ -208,13 +275,15 @@ public class RosterBuilderService {
         private int size;
         private int maleCount;
         private int femaleCount;
+        private int seasonRunTotal;
 
         private TeamStats(Team team) {
             this.team = team;
         }
 
-        private void add(Player player) {
+        private void add(Player player, int playerSeasonRuns) {
             size++;
+            seasonRunTotal += playerSeasonRuns;
             if (player.getGender() == Gender.FEMALE) {
                 femaleCount++;
             } else if (player.getGender() == Gender.MALE) {
