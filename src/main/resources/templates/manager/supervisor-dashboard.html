@@ -169,6 +169,35 @@
             padding: 1rem;
         }
 
+        /*
+         * Game state notice
+         * -----------------
+         * Supervisors can build rosters before a game starts, but score/stat actions
+         * should only be enabled during live play. This prevents accidental runs from
+         * being recorded during setup.
+         */
+        .game-state-notice {
+            border: 1px solid #fbbf24;
+            background: #fffbeb;
+            color: #92400e;
+            border-radius: 14px;
+            padding: .85rem 1rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        button:disabled {
+            opacity: .55;
+            cursor: not-allowed;
+            filter: grayscale(.25);
+        }
+
+        .lineup-actions form.is-game-action-disabled button {
+            background: #94a3b8;
+            border-color: #94a3b8;
+            color: #ffffff;
+        }
+
         .game-overview-grid {
             /*
              * Stack the scoreboard and current at-bat cards vertically.
@@ -654,6 +683,11 @@
                 </summary>
 
                 <div class="game-card-body collapsible-content">
+                    <!-- Scoring and at-bat controls are intentionally disabled until this game is started. -->
+                    <div class="game-state-notice" th:if="${gameState == null}">
+                        Game has not started yet. You can build rosters and adjust batting order, but scoring and at-bat controls are disabled.
+                    </div>
+
                     <div class="game-overview-grid">
                         <section class="scoreboard-panel" th:attr="id=${'scoreboard-' + selectedGameWeekId}">
                             <span class="supervisor-section-label">Scoreboard</span>
@@ -699,7 +733,7 @@
                                                 type="button"
                                                 data-walkup-play-button
                                                 data-status-target="#walkup-status"
-                                                th:disabled="${currentWalkUpSong == null or (!currentWalkUpSong.introPlayable and !currentWalkUpSong.playable)}"
+                                                th:disabled="${gameState == null or currentWalkUpSong == null or (!currentWalkUpSong.introPlayable and !currentWalkUpSong.playable)}"
                                                 th:data-player-id="${currentWalkUpSong != null ? currentWalkUpSong.playerId : ''}"
                                                 th:data-roster-entry-id="${currentWalkUpSong != null ? currentWalkUpSong.rosterEntryId : ''}"
                                                 th:data-batting-team-id="${currentWalkUpSong != null ? currentWalkUpSong.battingTeamId : ''}"
@@ -712,7 +746,7 @@
                                             ▶ Play Current Batter Audio
                                         </button>
 
-                                        <button type="button" class="secondary" data-walkup-stop-button data-status-target="#walkup-status">
+                                        <button type="button" class="secondary" data-walkup-stop-button data-status-target="#walkup-status" th:disabled="${gameState == null}">
                                             Stop Audio
                                         </button>
                                     </div>
@@ -725,12 +759,12 @@
                                 <div class="button-row">
                                     <form th:action="@{/manager/supervisor/game/next-batter-info}" method="post" data-next-batter-form>
                                         <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                        <button type="submit">Next Batter</button>
+                                        <button type="submit" th:disabled="${gameState == null}">Next Batter</button>
                                     </form>
 
                                     <form th:action="@{/manager/supervisor/game/end-at-bat}" method="post">
                                         <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                        <button type="submit" class="secondary">End At-Bat / Switch Teams</button>
+                                        <button type="submit" class="secondary" th:disabled="${gameState == null}">End At-Bat / Switch Teams</button>
                                     </form>
                                 </div>
                             </div>
@@ -796,14 +830,14 @@
                                                     <button type="submit" class="secondary">↓</button>
                                                 </form>
 
-                                                <form th:action="@{/manager/supervisor/runs/{id}(id=${entry.id})}" method="post">
+                                                <form th:action="@{/manager/supervisor/runs/{id}(id=${entry.id})}" method="post" th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
                                                     <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                                    <button type="submit">+ Run</button>
+                                                    <button type="submit" th:disabled="${gameState == null}">+ Run</button>
                                                 </form>
 
-                                                <form th:action="@{/manager/supervisor/runs/{id}/remove(id=${entry.id})}" method="post">
+                                                <form th:action="@{/manager/supervisor/runs/{id}/remove(id=${entry.id})}" method="post" th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
                                                     <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                                    <button type="submit" class="secondary">- Run</button>
+                                                    <button type="submit" class="secondary" th:disabled="${gameState == null}">- Run</button>
                                                 </form>
 
                                                 <form th:action="@{/manager/supervisor/roster/{id}/remove(id=${entry.id})}"

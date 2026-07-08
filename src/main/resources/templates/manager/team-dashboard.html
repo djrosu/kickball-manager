@@ -7,7 +7,16 @@
     <meta name="_csrf_header" th:content="${_csrf.headerName}">
     <title>Team Manager | Singles, Sports and Social</title>
     <link rel="stylesheet" th:href="@{/css/app.css}">
+
     <style>
+        /*
+         * Team Manager Dashboard styling
+         * --------------------------------
+         * This page intentionally mirrors the League Supervisor v2 styling, but is scoped
+         * to one assigned team. The goal is a sideline-friendly interface: large controls,
+         * vertical game flow, and mobile cards instead of cramped tables.
+         */
+
         .manager-nav {
             display: flex;
             justify-content: space-between;
@@ -23,18 +32,207 @@
             justify-content: flex-end;
         }
 
+        .team-manager-shell {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .team-game-card {
+            border-radius: 18px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+            background: #ffffff;
+        }
+
+        .team-game-header {
+            padding: 1.15rem 1.25rem;
+            color: #ffffff;
+            background: linear-gradient(135deg, #dc111b, #991b1b);
+        }
+
+        .team-game-header h1 {
+            margin: 0;
+            color: #ffffff;
+            font-size: clamp(1.65rem, 4vw, 2.5rem);
+            line-height: 1.1;
+        }
+
+        .team-game-subtitle {
+            margin-top: .5rem;
+            color: rgba(255, 255, 255, .9);
+            font-size: 1rem;
+        }
+
+        .team-game-body {
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            background: #f8fafc;
+        }
+
+        .game-info-card {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1rem;
+        }
+
+        .game-info-card h2 {
+            margin-top: 0;
+        }
+
+        /*
+         * Game state notice
+         * -----------------
+         * Managers may prepare rosters before the game, but scoring controls should
+         * only be active while the game is actually running. This banner explains
+         * why run/next-batter controls are disabled before first pitch.
+         */
+        .game-state-notice {
+            border: 1px solid #fbbf24;
+            background: #fffbeb;
+            color: #92400e;
+            border-radius: 14px;
+            padding: .85rem 1rem;
+            font-weight: 700;
+        }
+
+        button:disabled {
+            opacity: .55;
+            cursor: not-allowed;
+            filter: grayscale(.25);
+        }
+
+        .lineup-actions form.is-game-action-disabled button {
+            background: #94a3b8;
+            border-color: #94a3b8;
+            color: #ffffff;
+        }
+
+        .scoreboard-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .scoreboard-table th,
+        .scoreboard-table td {
+            padding: .75rem .5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .scoreboard-table td:last-child {
+            font-size: 1.35rem;
+            font-weight: 900;
+            text-align: right;
+        }
+
+        .atbat-summary {
+            display: grid;
+            gap: .6rem;
+            margin-bottom: .85rem;
+        }
+
+        .atbat-summary p {
+            margin: 0;
+        }
+
+        .current-batter-name-large {
+            display: block;
+            margin-top: .25rem;
+            font-size: clamp(1.8rem, 6vw, 3rem);
+            line-height: 1.05;
+            font-weight: 900;
+        }
+
         .audio-panel {
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: .75rem;
-            background: #fafafa;
+            border-radius: 14px;
+            padding: .9rem;
+            background: #ffffff;
             margin-top: .75rem;
         }
 
         .audio-status {
             margin-top: .75rem;
-            font-size: .9rem;
+            font-size: .95rem;
             color: var(--muted);
+        }
+
+        #play-current-batter-audio {
+            background: #dc111b;
+            border: 1px solid #dc111b;
+            color: #ffffff;
+            min-width: 220px;
+        }
+
+        #play-current-batter-audio:disabled {
+            background: #334155;
+            border-color: #334155;
+            color: #ffffff;
+            opacity: .72;
+            cursor: not-allowed;
+        }
+
+        .primary-game-actions {
+            display: flex;
+            gap: .75rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+        }
+
+        .primary-game-actions button,
+        .audio-panel button {
+            padding: .75rem 1rem;
+            font-size: 1rem;
+            border-radius: 12px;
+        }
+
+        .team-lineup-card {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 1rem;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, .06);
+        }
+
+        .team-lineup-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: .75rem;
+            margin-bottom: .9rem;
+        }
+
+        .team-lineup-header h2 {
+            margin: 0;
+        }
+
+        .team-manager-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: .35rem .75rem;
+            border-radius: 999px;
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #86efac;
+            font-weight: 800;
+            font-size: .9rem;
+            white-space: nowrap;
+        }
+
+        .lineup-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .lineup-table th,
+        .lineup-table td {
+            padding: .75rem .55rem;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
         }
 
         .lineup-row.current-batter td {
@@ -44,49 +242,59 @@
 
         .lineup-row.current-batter td:first-child {
             border-left: 5px solid #dc111b;
-            padding-left: calc(.75rem - 5px);
+            padding-left: calc(.55rem - 5px);
         }
 
         .current-batter-badge {
             display: inline-block;
             margin-top: .35rem;
-            padding: .15rem .45rem;
+            padding: .18rem .5rem;
             border-radius: 999px;
             background: #dc111b;
             color: #ffffff;
-            font-size: .75rem;
-            font-weight: 800;
+            font-size: .8rem;
+            font-weight: 900;
             letter-spacing: .02em;
             text-transform: uppercase;
         }
 
-        #play-current-batter-audio {
-            background: #dc111b;
-            border: 1px solid #dc111b;
-            color: #ffffff;
+        .lineup-player-name {
+            font-weight: 800;
+            font-size: 1.05rem;
         }
 
-        #play-current-batter-audio:disabled {
-            background: #334155;
-            border-color: #334155;
-            color: #ffffff;
-            opacity: .7;
-            cursor: not-allowed;
+        .lineup-details {
+            color: var(--muted);
+            font-size: .95rem;
         }
-
-        .lineup-player-name { font-weight: 700; }
-        .lineup-details { color: var(--muted); font-size: .9rem; }
 
         .lineup-actions {
             display: flex;
-            gap: .35rem;
-            flex-wrap: wrap;
+            gap: .42rem;
+            flex-wrap: nowrap;
+            align-items: center;
         }
 
         .lineup-actions form,
-        .lineup-actions button { margin-top: 0; }
+        .lineup-actions button {
+            margin-top: 0;
+        }
 
-        .lineup-actions button { padding: .45rem .65rem; }
+        .lineup-actions button {
+            padding: .62rem .78rem;
+            min-height: 42px;
+            border-radius: 12px;
+            font-size: .95rem;
+            white-space: nowrap;
+        }
+
+        .lineup-actions .order-button {
+            min-width: 46px;
+            padding-left: .7rem;
+            padding-right: .7rem;
+            font-size: 1.05rem;
+            font-weight: 900;
+        }
 
         .add-player-form {
             margin-top: 1rem;
@@ -95,12 +303,117 @@
         }
 
         @media (max-width: 700px) {
-            .manager-nav { align-items: flex-start; }
-            .manager-nav-actions { flex-direction: column; align-items: flex-end; }
-            table, thead, tbody, tr, th, td { display: block; }
-            thead { display: none; }
-            td { border-bottom: 0; padding: .35rem 0; }
-            tr { border-bottom: 1px solid var(--border); padding: .75rem 0; }
+            .manager-nav {
+                align-items: flex-start;
+            }
+
+            .manager-nav-actions {
+                flex-direction: column;
+                align-items: flex-end;
+            }
+
+            .team-game-body {
+                padding: .75rem;
+            }
+
+            .team-lineup-header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            /*
+             * Mobile lineup layout
+             * The desktop table becomes compact player cards on narrow screens.
+             * This avoids the awkward table-cell divider lines that appear when a table
+             * is squeezed on iPhone-sized screens.
+             */
+            .lineup-table,
+            .lineup-table thead,
+            .lineup-table tbody,
+            .lineup-table tr,
+            .lineup-table th,
+            .lineup-table td {
+                display: block;
+            }
+
+            .lineup-table thead {
+                display: none;
+            }
+
+            .lineup-table tr {
+                position: relative;
+                padding: .85rem;
+                margin-bottom: .75rem;
+                border: 1px solid var(--border);
+                border-radius: 14px;
+                background: #ffffff;
+                box-shadow: 0 1px 4px rgba(15, 23, 42, .06);
+            }
+
+            .lineup-table tr.current-batter {
+                background: #fff7ed;
+                border-color: #fb923c;
+                border-left: 6px solid #dc111b;
+                box-shadow: 0 0 0 1px #fed7aa, 0 2px 8px rgba(15, 23, 42, .08);
+            }
+
+            .lineup-table td {
+                border-bottom: 0;
+                padding: .22rem 0;
+            }
+
+            .lineup-table td[data-label]::before {
+                content: attr(data-label) ': ';
+                font-weight: 800;
+                color: var(--muted);
+            }
+
+            .lineup-table td.mobile-player-cell::before,
+            .lineup-table td.mobile-actions-cell::before {
+                content: '';
+            }
+
+            .lineup-row.current-batter td,
+            .lineup-row.current-batter td:first-child {
+                background: transparent;
+                box-shadow: none;
+                border-left: 0;
+                padding-left: 0;
+            }
+
+            .lineup-actions {
+                gap: .45rem;
+                flex-wrap: nowrap;
+                width: 100%;
+                overflow-x: auto;
+                padding-top: .5rem;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .lineup-actions button {
+                padding: .68rem .82rem;
+                min-height: 46px;
+            }
+
+            .lineup-actions .order-button {
+                min-width: 50px;
+            }
+
+            #play-current-batter-audio {
+                min-width: 0;
+                width: 100%;
+            }
+
+            .audio-panel .button-row,
+            .primary-game-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .audio-panel .button-row button,
+            .primary-game-actions button {
+                width: 100%;
+            }
         }
     </style>
 </head>
@@ -117,169 +430,200 @@
     <div class="success" th:if="${message}" th:text="${message}"></div>
     <div class="error" th:if="${error}" th:text="${error}"></div>
 
-    <section class="card hero">
-        <h1 th:text="${team.color} + ' Team - ' + ${#temporals.format(week.gameDate, 'M/d/yyyy')} + ' at ' + ${#temporals.format(week.gameTime, 'h:mm a')}">
-            Team Game
-        </h1>
-        <p class="muted">
-            This team-only dashboard lets a Team Manager control their own roster, batting order, runs,
-            current batter, and walk-up audio without seeing league-wide supervisor controls.
-        </p>
-    </section>
+    <section class="team-manager-shell">
+        <article class="team-game-card" th:attr="id='team-game-' + ${week.id}">
+            <header class="team-game-header">
+                <h1 th:text="${team.color} + ' Team'">Red Team</h1>
+                <div class="team-game-subtitle"
+                     th:text="${#temporals.format(week.gameDate, 'M/d/yyyy')} + ' at ' + ${#temporals.format(week.gameTime, 'h:mm a')}">
+                    7/14/2026 at 7:00 PM
+                </div>
+            </header>
 
-    <section class="grid">
-        <div class="card">
-            <h2>Scoreboard</h2>
-            <table>
-                <thead><tr><th>Team</th><th>Runs</th></tr></thead>
-                <tbody>
-                <tr th:each="score : ${scores}">
-                    <td th:text="${score.color}">Red</td>
-                    <td th:text="${score.runs}">0</td>
-                </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="card">
-            <h2>Current At-Bat</h2>
-
-            <div th:if="${gameState == null}">
-                <p class="muted">The League Supervisor has not started the game yet.</p>
-            </div>
-
-            <div th:if="${gameState != null}">
-                <p>
-                    <strong>Inning:</strong>
-                    <span id="current-inning" th:text="${gameState.inning}">1</span>
-                </p>
-                <p>
-                    <strong>Batting Team:</strong>
-                    <span id="current-batting-team" th:text="${gameState.currentBattingTeam != null ? gameState.currentBattingTeam.color : 'None'}">Red</span>
-                </p>
-                <p>
-                    <strong>Current Batter:</strong>
-                    <span id="current-batter-name"
-                          th:text="${gameState.currentBatterRosterEntry != null ? (gameState.currentBatterRosterEntry.player.nickname ?: gameState.currentBatterRosterEntry.player.name) : 'None'}">
-                        Player
-                    </span>
-                </p>
-                <p>
-                    <strong>Song:</strong>
-                    <span id="current-batter-song"
-                          th:text="${currentWalkUpSong != null ? ((currentWalkUpSong.artist ?: '') + (#strings.isEmpty(currentWalkUpSong.artist) or #strings.isEmpty(currentWalkUpSong.title) ? '' : ' - ') + (currentWalkUpSong.title ?: '')) : 'No song entered'}">
-                        Artist - Title
-                    </span>
-                </p>
-
-                <p th:if="${!teamIsBatting}" class="muted">
-                    Your team is not currently batting. You can still edit your roster and update runs below.
-                </p>
-
-                <div class="audio-panel">
-                    <div class="button-row">
-                        <button id="play-current-batter-audio"
-                                type="button"
-                                data-walkup-play-button
-                                data-status-target="#walkup-status"
-                                th:disabled="${currentWalkUpSong == null or (!currentWalkUpSong.introPlayable and !currentWalkUpSong.playable)}"
-                                th:data-player-id="${currentWalkUpSong != null ? currentWalkUpSong.playerId : ''}"
-                                th:data-roster-entry-id="${currentWalkUpSong != null ? currentWalkUpSong.rosterEntryId : ''}"
-                                th:data-player-name="${currentWalkUpSong != null ? currentWalkUpSong.playerName : ''}"
-                                th:data-artist="${currentWalkUpSong != null ? currentWalkUpSong.artist : ''}"
-                                th:data-title="${currentWalkUpSong != null ? currentWalkUpSong.title : ''}"
-                                th:data-intro-url="${currentWalkUpSong != null and currentWalkUpSong.introPlayable ? currentWalkUpSong.introAudioUrl : ''}"
-                                th:data-song-url="${currentWalkUpSong != null and currentWalkUpSong.playable ? currentWalkUpSong.audioUrl : ''}">
-                            ▶ Play Current Batter Audio
-                        </button>
-
-                        <button type="button" class="secondary" data-walkup-stop-button data-status-target="#walkup-status">
-                            Stop Audio
-                        </button>
-                    </div>
-
-                    <p id="walkup-status" class="audio-status">
-                        Tap Next Batter while your team is batting to advance and play the next batter's intro and walk-up song.
-                    </p>
+            <div class="team-game-body">
+                <!-- Scoring and at-bat controls are intentionally disabled until the League Supervisor starts the game. -->
+                <div class="game-state-notice" th:if="${gameState == null}">
+                    Game has not started yet. You can build the roster and adjust the batting order, but scoring and at-bat controls are disabled.
                 </div>
 
-                <div class="button-row" th:if="${teamIsBatting}">
-                    <form th:action="@{/manager/team/game/next-batter-info}" method="post" data-next-batter-form>
-                        <button type="submit">Next Batter</button>
-                    </form>
+                <section class="game-info-card">
+                    <h2>Scoreboard</h2>
+                    <table class="scoreboard-table">
+                        <thead>
+                        <tr>
+                            <th>Team</th>
+                            <th>Runs</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="score : ${scores}">
+                            <td th:text="${score.color}">Red</td>
+                            <td th:text="${score.runs}">0</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </section>
 
-                    <form th:action="@{/manager/team/game/end-at-bat}" method="post"
-                          onsubmit="return confirm('End your team\'s at-bat and switch to the next team?');">
-                        <button type="submit" class="secondary">End At-Bat / Switch Teams</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </section>
+                <section class="game-info-card">
+                    <h2>Current At-Bat</h2>
 
-    <section class="card">
-        <h2 th:text="${team.color} + ' Team Lineup'">Team Lineup</h2>
-        <table>
-            <thead>
-            <tr>
-                <th>Order</th>
-                <th>Player</th>
-                <th>Runs</th>
-                <th>Actions</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr th:each="entry : ${rosterEntries}"
-                class="lineup-row"
-                th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? ' current-batter' : ''}"
-                th:attr="data-roster-entry-id=${entry.id}, data-team-id=${entry.team.id}, data-player-id=${entry.player.id}">
-                <td th:text="${entry.battingOrder}">1</td>
-                <td>
-                    <div class="lineup-player-name" th:text="${entry.player.nickname ?: entry.player.name}">Player</div>
-                    <div class="lineup-details" th:text="${entry.player.name}">Full Name</div>
-                    <span class="current-batter-badge"
-                          th:style="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? 'display:inline-block' : 'display:none'}">
-                        At Bat
-                    </span>
-                </td>
-                <td th:text="${entry.runsScored}">0</td>
-                <td>
-                    <div class="lineup-actions">
-                        <form th:action="@{/manager/team/runs/{id}(id=${entry.id})}" method="post">
-                            <button type="submit">+ Run</button>
-                        </form>
-                        <form th:action="@{/manager/team/runs/{id}/remove(id=${entry.id})}" method="post">
-                            <button type="submit" class="secondary">- Run</button>
-                        </form>
-                        <form th:action="@{/manager/team/lineup/{id}/up(id=${entry.id})}" method="post">
-                            <button type="submit" class="secondary">↑</button>
-                        </form>
-                        <form th:action="@{/manager/team/lineup/{id}/down(id=${entry.id})}" method="post">
-                            <button type="submit" class="secondary">↓</button>
-                        </form>
-                        <form th:action="@{/manager/team/roster/{id}/remove(id=${entry.id})}"
-                              method="post"
-                              class="confirm-remove-player-form"
-                              th:attr="data-player-name=${entry.player.nickname ?: entry.player.name}">
-                            <button type="submit" class="danger">Remove</button>
-                        </form>
+                    <div th:if="${gameState == null}">
+                        <p class="muted">The League Supervisor has not started the game yet.</p>
                     </div>
-                </td>
-            </tr>
-            </tbody>
-        </table>
-        <p th:if="${#lists.isEmpty(rosterEntries)}" class="muted">No players have been assigned to your team yet.</p>
 
-        <form th:action="@{/manager/team/teams/{teamId}/add-player(teamId=${team.id})}" method="post" class="add-player-form">
-            <label>Add registered player to this team</label>
-            <select name="playerId" required>
-                <option value="">Choose a player</option>
-                <option th:each="p : ${players}" th:value="${p.id}" th:text="${p.name}"></option>
-            </select>
-            <button type="submit">Add Player</button>
-        </form>
+                    <div th:if="${gameState != null}">
+                        <div class="atbat-summary">
+                            <p>
+                                <strong>Inning:</strong>
+                                <span id="current-inning" th:text="${gameState.inning}">1</span>
+                            </p>
+                            <p>
+                                <strong>Batting Team:</strong>
+                                <span id="current-batting-team" th:text="${gameState.currentBattingTeam != null ? gameState.currentBattingTeam.color : 'None'}">Red</span>
+                            </p>
+                            <p>
+                                <strong>Current Batter:</strong>
+                                <span id="current-batter-name" class="current-batter-name-large"
+                                      th:text="${gameState.currentBatterRosterEntry != null ? (gameState.currentBatterRosterEntry.player.nickname ?: gameState.currentBatterRosterEntry.player.name) : 'None'}">
+                                    Player
+                                </span>
+                            </p>
+                            <p>
+                                <strong>Song:</strong>
+                                <span id="current-batter-song"
+                                      th:text="${currentWalkUpSong != null ? ((currentWalkUpSong.artist ?: '') + (#strings.isEmpty(currentWalkUpSong.artist) or #strings.isEmpty(currentWalkUpSong.title) ? '' : ' - ') + (currentWalkUpSong.title ?: '')) : 'No song entered'}">
+                                    Artist - Title
+                                </span>
+                            </p>
+                        </div>
+
+                        <p th:if="${!teamIsBatting}" class="muted">
+                            Your team is not currently batting. You can still edit your roster and update runs below.
+                        </p>
+
+                        <div class="audio-panel">
+                            <div class="button-row">
+                                <button id="play-current-batter-audio"
+                                        type="button"
+                                        data-walkup-play-button
+                                        data-status-target="#walkup-status"
+                                        th:disabled="${gameState == null or currentWalkUpSong == null or (!currentWalkUpSong.introPlayable and !currentWalkUpSong.playable)}"
+                                        th:data-player-id="${currentWalkUpSong != null ? currentWalkUpSong.playerId : ''}"
+                                        th:data-roster-entry-id="${currentWalkUpSong != null ? currentWalkUpSong.rosterEntryId : ''}"
+                                        th:data-player-name="${currentWalkUpSong != null ? currentWalkUpSong.playerName : ''}"
+                                        th:data-artist="${currentWalkUpSong != null ? currentWalkUpSong.artist : ''}"
+                                        th:data-title="${currentWalkUpSong != null ? currentWalkUpSong.title : ''}"
+                                        th:data-intro-url="${currentWalkUpSong != null and currentWalkUpSong.introPlayable ? currentWalkUpSong.introAudioUrl : ''}"
+                                        th:data-song-url="${currentWalkUpSong != null and currentWalkUpSong.playable ? currentWalkUpSong.audioUrl : ''}">
+                                    ▶ Play Current Batter Audio
+                                </button>
+
+                                <button type="button" class="secondary" data-walkup-stop-button data-status-target="#walkup-status" th:disabled="${gameState == null}">
+                                    Stop Audio
+                                </button>
+                            </div>
+
+                            <p id="walkup-status" class="audio-status">
+                                Tap Next Batter while your team is batting to advance and play the next batter's intro and walk-up song.
+                            </p>
+                        </div>
+
+                        <div class="primary-game-actions" th:if="${teamIsBatting}">
+                            <form th:action="@{/manager/team/game/next-batter-info}" method="post" data-next-batter-form>
+                                <button type="submit" th:disabled="${gameState == null}">Next Batter</button>
+                            </form>
+
+                            <form th:action="@{/manager/team/game/end-at-bat}" method="post"
+                                  onsubmit="return confirm('End your team\'s at-bat and switch to the next team?');">
+                                <button type="submit" class="secondary" th:disabled="${gameState == null}">End At-Bat / Switch Teams</button>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="team-lineup-card">
+                    <div class="team-lineup-header">
+                        <h2 th:text="${team.color} + ' Team Lineup'">Team Lineup</h2>
+                        <span class="team-manager-badge">Your Team</span>
+                    </div>
+
+                    <table class="lineup-table">
+                        <thead>
+                        <tr>
+                            <th>Order</th>
+                            <th>Player</th>
+                            <th>Runs</th>
+                            <th>Actions</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="entry : ${rosterEntries}"
+                            class="lineup-row"
+                            th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? ' current-batter' : ''}"
+                            th:attr="data-roster-entry-id=${entry.id}, data-team-id=${entry.team.id}, data-player-id=${entry.player.id}">
+                            <td data-label="Order" th:text="${entry.battingOrder}">1</td>
+                            <td class="mobile-player-cell">
+                                <div class="lineup-player-name" th:text="${entry.player.nickname ?: entry.player.name}">Player</div>
+                                <div class="lineup-details" th:text="${entry.player.name}">Full Name</div>
+                                <span class="current-batter-badge"
+                                      th:style="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? 'display:inline-block' : 'display:none'}">
+                                    At Bat
+                                </span>
+                            </td>
+                            <td data-label="Runs" th:text="${entry.runsScored}">0</td>
+                            <td class="mobile-actions-cell">
+                                <div class="lineup-actions">
+                                    <form th:action="@{/manager/team/lineup/{id}/up(id=${entry.id})}" method="post">
+                                        <button type="submit" class="secondary order-button">↑</button>
+                                    </form>
+                                    <form th:action="@{/manager/team/lineup/{id}/down(id=${entry.id})}" method="post">
+                                        <button type="submit" class="secondary order-button">↓</button>
+                                    </form>
+                                    <form th:action="@{/manager/team/runs/{id}(id=${entry.id})}" method="post" th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
+                                        <button type="submit" th:disabled="${gameState == null}">+ Run</button>
+                                    </form>
+                                    <form th:action="@{/manager/team/runs/{id}/remove(id=${entry.id})}" method="post" th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
+                                        <button type="submit" class="secondary" th:disabled="${gameState == null}">- Run</button>
+                                    </form>
+                                    <form th:action="@{/manager/team/roster/{id}/remove(id=${entry.id})}"
+                                          method="post"
+                                          class="confirm-remove-player-form"
+                                          th:attr="data-player-name=${entry.player.nickname ?: entry.player.name}">
+                                        <button type="submit" class="danger">Remove</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <p th:if="${#lists.isEmpty(rosterEntries)}" class="muted">No players have been assigned to your team yet.</p>
+
+                    <form th:action="@{/manager/team/teams/{teamId}/add-player(teamId=${team.id})}" method="post" class="add-player-form">
+                        <label>Add registered player to this team</label>
+                        <select name="playerId" required>
+                            <option value="">Choose a player</option>
+                            <option th:each="p : ${players}" th:value="${p.id}" th:text="${p.name}"></option>
+                        </select>
+                        <button type="submit">Add Player</button>
+                    </form>
+                </section>
+            </div>
+        </article>
     </section>
 </main>
+
+<script>
+    // Confirm player removal on the Team Manager page. Keeping this logic here avoids
+    // attaching inline confirm handlers to every generated form.
+    document.querySelectorAll('.confirm-remove-player-form').forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            var playerName = form.getAttribute('data-player-name') || 'this player';
+            if (!confirm('Remove ' + playerName + ' from your team roster?')) {
+                event.preventDefault();
+            }
+        });
+    });
+</script>
 <!-- Cache-bust the shared walk-up audio JavaScript with a simple static version.
      Thymeleaf 3 / Spring Security blocks direct access to java.lang.System from templates,
      so we intentionally avoid T(java.lang.System).currentTimeMillis() here.
