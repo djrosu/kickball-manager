@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Centralized authorization helper for manager workflows.
@@ -84,6 +85,19 @@ public class ManagerAccessService {
                 .filter(team -> team.getManagerPlayer() == null)
                 .filter(team -> player.isManager() && rosterEntryRepository.existsByTeamAndPlayer(team, player))
                 .toList();
+    }
+
+    /**
+     * Returns the game-week ids where this player is explicitly assigned as a
+     * team manager. This is useful for League Supervisors because they may also
+     * be assigned to one team, and their own game should be emphasized in the
+     * supervisor experience.
+     */
+    public Set<Long> managedGameWeekIds(Player player) {
+        if (player == null) {
+            return Set.of();
+        }
+        return teamRepository.findManagedGameWeekIds(player);
     }
 
     /**

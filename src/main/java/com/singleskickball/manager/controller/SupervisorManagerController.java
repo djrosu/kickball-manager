@@ -3,6 +3,7 @@ package com.singleskickball.manager.controller;
 import com.singleskickball.manager.dto.WalkUpSongInfo;
 import com.singleskickball.manager.model.GameState;
 import com.singleskickball.manager.model.GameWeek;
+import com.singleskickball.manager.model.Player;
 import com.singleskickball.manager.service.GameManagementService;
 import com.singleskickball.manager.service.GameWeekService;
 import com.singleskickball.manager.service.LineupService;
@@ -20,6 +21,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
 
 /**
  * League Supervisor dashboard and actions.
@@ -69,14 +75,17 @@ public class SupervisorManagerController {
     public String dashboard(@RequestParam(required = false) Long gameWeekId,
                             Model model,
                             Authentication authentication) {
-        accessService.requireLeagueSupervisor(authentication);
+        Player supervisor = accessService.requireLeagueSupervisor(authentication);
+        Set<Long> supervisorManagedGameWeekIds = accessService.managedGameWeekIds(supervisor);
 
         GameWeek week = resolveWeek(gameWeekId);
         GameState gameState = gameManagementService.getGameState(week).orElse(null);
 
+        model.addAttribute("player", supervisor);
         model.addAttribute("week", week);
         model.addAttribute("selectedGameWeekId", week.getId());
-        model.addAttribute("allGameWeeks", gameWeekService.getAllGameWeeks());
+        model.addAttribute("supervisorManagedGameWeekIds", supervisorManagedGameWeekIds);
+        model.addAttribute("allGameWeeks", orderGameWeeksForSupervisor(supervisorManagedGameWeekIds));
         model.addAttribute("availability", gameWeekService.getAvailabilityForWeek(week));
         model.addAttribute("teams", rosterService.getTeams(week));
         model.addAttribute("rosterEntries", rosterService.getRosterForWeek(week));
@@ -333,6 +342,23 @@ public class SupervisorManagerController {
     /** Resolves a requested game week or falls back to the normal current week. */
     private GameWeek resolveWeek(Long gameWeekId) {
         return gameWeekId == null ? gameWeekService.getCurrentGameWeek() : gameWeekService.getGameWeek(gameWeekId);
+    }
+
+    /**
+     * Sorts game weeks for the League Supervisor.
+     *
+     * A League Supervisor may also be assigned as the manager for one team.
+     * Those games should appear first so the supervisor can keep their own game
+     * expanded/focused while still having access to every other game.
+     */
+    private List<GameWeek> orderGameWeeksForSupervisor(Set<Long> supervisorManagedGameWeekIds) {
+        List<GameWeek> weeks = new ArrayList<>(gameWeekService.getAllGameWeeks());
+        weeks.sort(Comparator
+                .comparing((GameWeek gameWeek) -> !supervisorManagedGameWeekIds.contains(gameWeek.getId()))
+                .thenComparing(GameWeek::getGameDate)
+                .thenComparing(GameWeek::getGameTime)
+                .thenComparing(GameWeek::getId));
+        return weeks;
     }
 
     /** Keeps the supervisor on the selected game after an action completes. */
