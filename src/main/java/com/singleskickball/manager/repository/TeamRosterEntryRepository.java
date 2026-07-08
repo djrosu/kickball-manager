@@ -14,7 +14,8 @@ import java.util.Optional;
  * Data access for weekly team roster entries.
  *
  * A TeamRosterEntry is week-specific. It stores the player's team assignment,
- * batting order, and runs scored for that week's game.
+ * batting order, and runs scored for that week's game. Because each week's row
+ * stores that week's runs, summing across rows gives season-long run totals.
  */
 public interface TeamRosterEntryRepository extends JpaRepository<TeamRosterEntry, Long> {
 
@@ -30,9 +31,28 @@ public interface TeamRosterEntryRepository extends JpaRepository<TeamRosterEntry
 
     boolean existsByTeam_GameWeekAndPlayer(GameWeek gameWeek, Player player);
 
-    @Query("select e.team.id, coalesce(sum(e.runsScored), 0) from TeamRosterEntry e where e.team.gameWeek = ?1 group by e.team.id")
+    @Query("select e.team.id, coalesce(sum(e.runsScored), 0) " +
+            "from TeamRosterEntry e " +
+            "where e.team.gameWeek = ?1 " +
+            "group by e.team.id")
     List<Object[]> findTeamRunTotals(GameWeek gameWeek);
 
-    @Query("select e.player.name, sum(e.runsScored) from TeamRosterEntry e group by e.player.id, e.player.name order by sum(e.runsScored) desc")
+    /**
+     * Top run leaders across all saved weekly roster entries. This is the
+     * season leaderboard shown on the player home page.
+     */
+    @Query("select e.player.name, coalesce(sum(e.runsScored), 0) " +
+            "from TeamRosterEntry e " +
+            "group by e.player.id, e.player.name " +
+            "order by coalesce(sum(e.runsScored), 0) desc, e.player.name asc")
     List<Object[]> findRunLeaders();
+
+    /**
+     * Player-id keyed run totals used by the roster builder. These totals let
+     * us gently split strong/high-scoring players across teams in future weeks.
+     */
+    @Query("select e.player.id, coalesce(sum(e.runsScored), 0) " +
+            "from TeamRosterEntry e " +
+            "group by e.player.id")
+    List<Object[]> findPlayerRunTotals();
 }

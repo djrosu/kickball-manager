@@ -94,6 +94,39 @@ public class ManagerController {
         return "redirect:/manager";
     }
 
+
+    /**
+     * Ends the current live game. Existing rosters, batting order, and runs are
+     * preserved for season history. The week is marked FINAL and the app will
+     * move on to the next scheduled non-final game.
+     */
+    @PostMapping("/game/end-game")
+    public String endGame(RedirectAttributes redirectAttributes) {
+        try {
+            gameManagementService.endGame(gameWeekService.getCurrentGameWeek());
+            redirectAttributes.addFlashAttribute("message", "Game ended. Runs and rosters were saved.");
+        } catch (RuntimeException ex) {
+            redirectAttributes.addFlashAttribute("error", ex.getMessage());
+        }
+        return "redirect:/manager";
+    }
+
+    /**
+     * Restarts live game tracking for the current week using the existing
+     * rosters. This is useful if a manager accidentally ends or starts the game.
+     * It does not erase run totals.
+     */
+    @PostMapping("/game/restart")
+    public String restartGame(RedirectAttributes redirectAttributes) {
+        try {
+            gameManagementService.restartGame(gameWeekService.getCurrentGameWeek());
+            redirectAttributes.addFlashAttribute("message", "Game restarted. Existing rosters and runs were preserved.");
+        } catch (RuntimeException ex) {
+            redirectAttributes.addFlashAttribute("error", ex.getMessage());
+        }
+        return "redirect:/manager";
+    }
+
     /**
      * Non-AJAX fallback for advancing the batting order.
      */

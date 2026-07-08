@@ -164,6 +164,36 @@ public class GameManagementService {
         return gameStateRepository.save(state);
     }
 
+
+    /**
+     * Ends the live game and marks the week final.
+     *
+     * This intentionally keeps teams, roster entries, batting order, and run
+     * totals. Those rows are the season history and are used by the running run
+     * leaderboard and next week's roster balancing.
+     */
+    @Transactional
+    public void endGame(GameWeek week) {
+        gameStateRepository.findByGameWeek(week).ifPresent(gameStateRepository::delete);
+        currentBatterByWeekAndTeam.remove(week.getId());
+
+        week.setStatus(GameWeekStatus.FINAL);
+        gameWeekRepository.save(week);
+    }
+
+    /**
+     * Restarts live game tracking using the existing teams and batting order.
+     *
+     * This does not delete teams or reset run totals. It simply puts the game
+     * back into IN_PROGRESS status and resets the visible at-bat state to the
+     * first team/first batter. That makes it safe for recovering from an
+     * accidental End Game click without losing the scorebook.
+     */
+    @Transactional
+    public GameState restartGame(GameWeek week) {
+        return startGame(week);
+    }
+
     /** Adds one run to the selected player/roster entry. */
     @Transactional
     public void addRun(Long rosterEntryId) {
