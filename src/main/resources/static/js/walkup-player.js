@@ -15,6 +15,13 @@
 
     let currentAudio = null;
 
+    /*
+     * Audio ownership is managed separately by manager-ajax.js. This module
+     * touches the browser media element only when a real intro or walk-up file
+     * is ready to play. In particular, claiming audio ownership never attempts
+     * to play an empty, silent, or synthetic media URL.
+     */
+
     function hasText(value) {
         return value !== null && value !== undefined && String(value).trim() !== '';
     }
@@ -252,7 +259,9 @@
 
                 // Apply all server changes first, then begin audio while the
                 // manager's click still qualifies as a browser user gesture.
-                window.ManagerAjax.applyState(state, { playAudio: true });
+                window.ManagerAjax.applyState(state, {
+                    playAudio: !window.ManagerAjax.hasDedicatedAudioTarget()
+                });
             } catch (error) {
                 if (statusElement) {
                     statusElement.textContent = error.message || 'Unable to advance to next batter.';

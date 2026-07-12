@@ -42,6 +42,7 @@ public class ManagerLiveUpdateController {
 
     @GetMapping(path = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events(@RequestParam Long gameWeekId,
+                             @RequestParam String deviceId,
                              Authentication authentication) {
         GameWeek week = gameWeekService.getGameWeek(gameWeekId);
         Player currentPlayer = accessService.currentPlayer(authentication);
@@ -51,7 +52,7 @@ public class ManagerLiveUpdateController {
             accessService.requirePrimaryManagedTeam(week, currentPlayer);
         }
 
-        SseEmitter emitter = liveUpdateService.subscribe(gameWeekId);
+        SseEmitter emitter = liveUpdateService.subscribe(gameWeekId, deviceId);
 
         // Publish is global, so send the initial state directly only to this client.
         // The initial Thymeleaf page is already correct; this mainly closes the
@@ -60,6 +61,9 @@ public class ManagerLiveUpdateController {
             emitter.send(SseEmitter.event()
                     .name("dashboard-state")
                     .data(dashboardStateService.buildState(week, "Live sync connected.")));
+            emitter.send(SseEmitter.event()
+                    .name("audio-target-state")
+                    .data(liveUpdateService.getAudioTargetState(gameWeekId)));
         } catch (Exception error) {
             emitter.completeWithError(error);
         }

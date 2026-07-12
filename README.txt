@@ -1,12 +1,17 @@
-Kickball Live Sync Safe Heartbeat - Corrected Overlay
+Shared Audio Target - Media Source Fix
+======================================
 
-This overlay supersedes kickball-live-sync-safe-heartbeat-overlay.zip.
+This overlay changes only the two JavaScript files involved in shared audio targeting.
 
-Fixes:
-- Preserves the League Supervisor dashboard model attributes used by the current template:
-  player, supervisorManagedGameWeekIds, and supervisor-prioritized game ordering.
-- Publishes lifecycle changes (start/end/resume/restart/reopen) to connected managers.
-- Keeps the production-safe SSE heartbeat and removes stale emitters quietly.
-- Refreshes Team Manager controls when a game changes lifecycle state.
+Changes:
+- Claiming or releasing the shared audio target no longer loads or plays any media.
+- Removes the synthetic silent-WAV priming code that caused Chrome's
+  "media resource ... was not suitable" error.
+- Actual MP3 files are loaded only when a real batter-audio command is received
+  or a manager explicitly presses the Play button.
+- Improves ownership text:
+    * "Audio controller: this device"
+    * "Audio controller: <manager>"
+    * default audio-mode explanation
 
-No database or Flyway changes.
+No Java, database, or Flyway changes are included.

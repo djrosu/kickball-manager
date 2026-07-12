@@ -22,6 +22,7 @@
     let requestInProgress = false;
     let liveEventSource = null;
     let liveReconnectTimer = null;
+    let currentAudioTarget = null;
 
     function managerRoot() {
         return document.querySelector('main.page[data-manager-view]');
@@ -34,6 +35,113 @@
             gameWeekId: root && root.dataset.gameWeekId ? Number(root.dataset.gameWeekId) : null,
             managedTeamId: root && root.dataset.managedTeamId ? Number(root.dataset.managedTeamId) : null
         };
+    }
+
+
+
+    /** Returns a stable id for this browser installation. */
+    function audioDeviceId() {
+        const storageKey = 'kickballAudioDeviceId';
+        let id = window.localStorage.getItem(storageKey);
+        if (!id) {
+            id = (window.crypto && window.crypto.randomUUID)
+                ? window.crypto.randomUUID()
+                : 'device-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+            window.localStorage.setItem(storageKey, id);
+        }
+        return id;
+    }
+
+    function isThisDeviceAudioTarget() {
+        return !!(currentAudioTarget && currentAudioTarget.targeted
+            && currentAudioTarget.deviceId === audioDeviceId());
+    }
+
+    function hasDedicatedAudioTarget() {
+        return !!(currentAudioTarget && currentAudioTarget.targeted);
+    }
+
+    /**
+     * Adds the shared-audio selector to either manager dashboard without
+     * requiring duplicate Thymeleaf markup. The control is inserted beside the
+     * existing audio panel and is available to every authorized manager.
+     */
+    function ensureAudioTargetControl() {
+        if (document.querySelector('[data-audio-target-control]')) {
+            updateAudioTargetControl();
+            return;
+        }
+
+        const audioPanel = document.querySelector('.audio-panel');
+        if (!audioPanel) {
+            return;
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.setAttribute('data-audio-target-control', 'true');
+        wrapper.className = 'audio-target-control';
+        wrapper.innerHTML =
+            '<label style="display:flex;align-items:center;gap:.6rem;font-weight:700;cursor:pointer;">' +
+            '<input type="checkbox" data-audio-target-checkbox style="width:1.25rem;height:1.25rem;">' +
+            '<span>Play all game audio on this device</span></label>' +
+            '<div data-audio-target-status class="muted" style="margin-top:.35rem;"></div>';
+
+        audioPanel.insertAdjacentElement('afterend', wrapper);
+        const checkbox = wrapper.querySelector('[data-audio-target-checkbox]');
+        checkbox.addEventListener('change', async function () {
+            const context = currentContext();
+            checkbox.disabled = true;
+            try {
+                if (checkbox.checked) {
+                    /*
+                     * Claiming audio ownership is intentionally a networking-only
+                     * operation. Do not load or play a media resource here. The
+                     * prior implementation tried to play a tiny data-URI sound to
+                     * "prime" the browser, which caused Chrome to report that the
+                     * media source was unsuitable on some devices.
+                     *
+                     * Actual intro/walk-up files are loaded only when a batter
+                     * audio command is received or the manager presses Play.
+                     */
+                    currentAudioTarget = await postJson('/manager/api/audio-target/claim', {
+                        gameWeekId: context.gameWeekId,
+                        deviceId: audioDeviceId()
+                    });
+                } else {
+                    currentAudioTarget = await postJson('/manager/api/audio-target/release', {
+                        gameWeekId: context.gameWeekId,
+                        deviceId: audioDeviceId()
+                    });
+                }
+                updateAudioTargetControl();
+            } catch (error) {
+                showMessage(error.message || 'Unable to change the audio target.', true);
+                checkbox.checked = isThisDeviceAudioTarget();
+            } finally {
+                checkbox.disabled = false;
+            }
+        });
+        updateAudioTargetControl();
+    }
+
+    function updateAudioTargetControl() {
+        const checkbox = document.querySelector('[data-audio-target-checkbox]');
+        const status = document.querySelector('[data-audio-target-status]');
+        if (!checkbox || !status) {
+            return;
+        }
+        checkbox.checked = isThisDeviceAudioTarget();
+        if (!hasDedicatedAudioTarget()) {
+            status.textContent = 'Default audio mode: audio plays on the manager device that advances the batter.';
+            status.classList.remove('success');
+        } else if (isThisDeviceAudioTarget()) {
+            status.textContent = 'Audio controller: this device';
+            status.classList.add('success');
+        } else {
+            status.textContent = 'Audio controller: ' +
+                (currentAudioTarget.managerName || 'another manager');
+            status.classList.remove('success');
+        }
     }
 
     function csrfHeaders() {
@@ -348,7 +456,8 @@
         }
 
         disconnectLiveSync();
-        const url = '/manager/api/live/events?gameWeekId=' + encodeURIComponent(context.gameWeekId);
+        const url = '/manager/api/live/events?gameWeekId=' + encodeURIComponent(context.gameWeekId)
+            + '&deviceId=' + encodeURIComponent(audioDeviceId());
         liveEventSource = new EventSource(url);
 
         liveEventSource.addEventListener('connected', function () {
@@ -371,6 +480,33 @@
             }
 
             applyState(state, { playAudio: false });
+            ensureAudioTargetControl();
+        });
+
+        liveEventSource.addEventListener('audio-target-state', function (event) {
+            try {
+                currentAudioTarget = JSON.parse(event.data);
+                updateAudioTargetControl();
+            } catch (error) {
+                console.warn('Ignored an unreadable audio-target update.', error);
+            }
+        });
+
+        liveEventSource.addEventListener('audio-command', function (event) {
+            try {
+                const command = JSON.parse(event.data);
+                if (command.targetDeviceId !== audioDeviceId()) {
+                    return;
+                }
+                if (window.WalkupPlayer && command.batter) {
+                    const statusElement = document.querySelector('#walkup-status');
+                    window.WalkupPlayer.playSequence(command.batter, statusElement).catch(function () {
+                        // WalkupPlayer displays the actionable browser message.
+                    });
+                }
+            } catch (error) {
+                console.warn('Ignored an unreadable audio command.', error);
+            }
         });
 
         liveEventSource.onerror = function () {
@@ -396,7 +532,10 @@
         }
     }
 
-    document.addEventListener('DOMContentLoaded', connectLiveSync);
+    document.addEventListener('DOMContentLoaded', function () {
+        ensureAudioTargetControl();
+        connectLiveSync();
+    });
     window.addEventListener('beforeunload', disconnectLiveSync);
 
     window.ManagerAjax = {
@@ -405,6 +544,9 @@
         currentContext: currentContext,
         showMessage: showMessage,
         connectLiveSync: connectLiveSync,
-        disconnectLiveSync: disconnectLiveSync
+        disconnectLiveSync: disconnectLiveSync,
+        hasDedicatedAudioTarget: hasDedicatedAudioTarget,
+        isThisDeviceAudioTarget: isThisDeviceAudioTarget,
+        audioDeviceId: audioDeviceId
     };
 })(window, document);

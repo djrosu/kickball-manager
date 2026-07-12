@@ -1,6 +1,8 @@
 package com.singleskickball.manager.service;
 
+import com.singleskickball.manager.dto.AudioTargetState;
 import com.singleskickball.manager.dto.ManagerDashboardState;
+import com.singleskickball.manager.dto.WalkUpSongInfo;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +49,10 @@ public class ManagerLiveUpdateService {
      */
     private static final long HEARTBEAT_INTERVAL_SECONDS = 25L;
 
+    /** Current optional audio owner for each active game. This is intentionally
+     * in memory: selecting an audio device is temporary game-session state. */
+    private final Map<Long, AudioTargetState> audioTargetsByGameWeek = new ConcurrentHashMap<>();
+
     /** One subscriber list per game prevents cross-game broadcasts. */
     private final Map<Long, CopyOnWriteArrayList<Subscriber>> subscribersByGameWeek =
             new ConcurrentHashMap<>();
@@ -70,9 +76,9 @@ public class ManagerLiveUpdateService {
     /**
      * Registers one authenticated browser for updates for one game week.
      */
-    public SseEmitter subscribe(Long gameWeekId) {
+    public SseEmitter subscribe(Long gameWeekId, String deviceId) {
         SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MILLIS);
-        Subscriber subscriber = new Subscriber(gameWeekId, emitter);
+        Subscriber subscriber = new Subscriber(gameWeekId, deviceId, emitter);
 
         subscribersByGameWeek
                 .computeIfAbsent(gameWeekId, ignored -> new CopyOnWriteArrayList<>())
@@ -97,6 +103,65 @@ public class ManagerLiveUpdateService {
         }
 
         return emitter;
+    }
+
+
+
+    /** Returns the current target, or an untargeted state when default audio routing is active. */
+    public AudioTargetState getAudioTargetState(Long gameWeekId) {
+        AudioTargetState state = audioTargetsByGameWeek.get(gameWeekId);
+        return state != null
+                ? state
+                : new AudioTargetState(gameWeekId, false, null, null);
+    }
+
+    /**
+     * Gives one manager device exclusive ownership of all subsequent walk-up audio.
+     * A later claim immediately replaces the previous owner.
+     */
+    public AudioTargetState claimAudioTarget(Long gameWeekId, String deviceId, String managerName) {
+        AudioTargetState state = new AudioTargetState(gameWeekId, true, deviceId, managerName);
+        audioTargetsByGameWeek.put(gameWeekId, state);
+        broadcastNamedEvent(gameWeekId, "audio-target-state", state);
+        return state;
+    }
+
+    /** Releases audio only when the requesting device currently owns it. */
+    public AudioTargetState releaseAudioTarget(Long gameWeekId, String deviceId) {
+        audioTargetsByGameWeek.computeIfPresent(gameWeekId, (ignored, current) ->
+                deviceId != null && deviceId.equals(current.getDeviceId()) ? null : current);
+        AudioTargetState state = getAudioTargetState(gameWeekId);
+        broadcastNamedEvent(gameWeekId, "audio-target-state", state);
+        return state;
+    }
+
+    /**
+     * Sends a batter audio command only when a dedicated target is selected.
+     * Browsers that are not the owner receive the event but ignore it by device id.
+     */
+    public void publishAudioCommandIfTargeted(Long gameWeekId, WalkUpSongInfo batter) {
+        AudioTargetState target = audioTargetsByGameWeek.get(gameWeekId);
+        if (target == null || batter == null) {
+            return;
+        }
+        broadcastNamedEvent(gameWeekId, "audio-command", Map.of(
+                "targetDeviceId", target.getDeviceId(),
+                "batter", batter));
+    }
+
+    /** Broadcasts a named SSE event to all viewers of one game. */
+    private void broadcastNamedEvent(Long gameWeekId, String eventName, Object data) {
+        CopyOnWriteArrayList<Subscriber> subscribers = subscribersByGameWeek.get(gameWeekId);
+        if (subscribers == null) {
+            return;
+        }
+        for (Subscriber subscriber : subscribers) {
+            try {
+                sendEvent(subscriber, SseEmitter.event().name(eventName).data(data));
+            } catch (Exception error) {
+                removeSubscriber(subscriber, true);
+            }
+        }
     }
 
     /**
@@ -214,6 +279,7 @@ public class ManagerLiveUpdateService {
                 subscribers.forEach(subscriber -> removeSubscriber(subscriber, true)));
 
         subscribersByGameWeek.clear();
+        audioTargetsByGameWeek.clear();
     }
 
     /**
@@ -221,11 +287,13 @@ public class ManagerLiveUpdateService {
      */
     private static final class Subscriber {
         private final Long gameWeekId;
+        private final String deviceId;
         private final SseEmitter emitter;
         private final AtomicBoolean closed = new AtomicBoolean(false);
 
-        private Subscriber(Long gameWeekId, SseEmitter emitter) {
+        private Subscriber(Long gameWeekId, String deviceId, SseEmitter emitter) {
             this.gameWeekId = gameWeekId;
+            this.deviceId = deviceId;
             this.emitter = emitter;
         }
     }

@@ -1,5 +1,7 @@
 package com.singleskickball.manager.controller;
 
+import com.singleskickball.manager.dto.AudioTargetRequest;
+import com.singleskickball.manager.dto.AudioTargetState;
 import com.singleskickball.manager.dto.ManagerActionRequest;
 import com.singleskickball.manager.dto.ManagerDashboardState;
 import com.singleskickball.manager.model.GameState;
@@ -132,7 +134,9 @@ public class ManagerApiController {
         GameWeek week = resolveWeek(request.getGameWeekId());
         requireLiveGameActionAccess(week, request.getTeamId(), authentication);
         gameManagementService.nextBatter(week);
-        return buildPublishAndReturn(week, "Advanced to next batter.");
+        ManagerDashboardState state = buildPublishAndReturn(week, "Advanced to next batter.");
+        liveUpdateService.publishAudioCommandIfTargeted(week.getId(), state.getCurrentBatter());
+        return state;
     }
 
     /** Ends the current at-bat and switches to the other team. */
@@ -143,6 +147,47 @@ public class ManagerApiController {
         requireLiveGameActionAccess(week, request.getTeamId(), authentication);
         gameManagementService.endAtBat(week);
         return buildPublishAndReturn(week, "At-bat ended. Switched teams.");
+    }
+
+
+
+    /** Claims all walk-up audio for the requesting manager device. */
+    @PostMapping("/audio-target/claim")
+    public AudioTargetState claimAudioTarget(@RequestBody AudioTargetRequest request,
+                                             Authentication authentication) {
+        GameWeek week = resolveWeek(request.getGameWeekId());
+        Player currentPlayer = requireManagerAccess(week, authentication);
+        String deviceId = requiredText(request.getDeviceId(), "deviceId");
+        String managerName = currentPlayer.getNickname() != null && !currentPlayer.getNickname().isBlank()
+                ? currentPlayer.getNickname()
+                : currentPlayer.getName();
+        return liveUpdateService.claimAudioTarget(week.getId(), deviceId, managerName);
+    }
+
+    /** Returns audio routing to the normal current-at-bat manager device. */
+    @PostMapping("/audio-target/release")
+    public AudioTargetState releaseAudioTarget(@RequestBody AudioTargetRequest request,
+                                               Authentication authentication) {
+        GameWeek week = resolveWeek(request.getGameWeekId());
+        requireManagerAccess(week, authentication);
+        return liveUpdateService.releaseAudioTarget(
+                week.getId(), requiredText(request.getDeviceId(), "deviceId"));
+    }
+
+    /** Ensures the caller is either the League Supervisor or a manager in this game. */
+    private Player requireManagerAccess(GameWeek week, Authentication authentication) {
+        Player currentPlayer = accessService.currentPlayer(authentication);
+        if (!accessService.isLeagueSupervisor(currentPlayer)) {
+            accessService.requirePrimaryManagedTeam(week, currentPlayer);
+        }
+        return currentPlayer;
+    }
+
+    private String requiredText(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " is required.");
+        }
+        return value.trim();
     }
 
     /**
