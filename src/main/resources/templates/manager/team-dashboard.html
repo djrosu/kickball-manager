@@ -418,7 +418,7 @@
     </style>
 </head>
 <body>
-<main class="page">
+<main class="page" data-manager-view="team" th:attr="data-game-week-id=${week.id}, data-managed-team-id=${team.id}">
     <nav class="manager-nav">
         <strong th:text="${team.color} + ' Team Manager'">Team Manager</strong>
         <div class="manager-nav-actions">
@@ -456,9 +456,9 @@
                         </tr>
                         </thead>
                         <tbody>
-                        <tr th:each="score : ${scores}">
+                        <tr th:each="score : ${scores}" th:attr="data-score-team-id=${score.teamId}">
                             <td th:text="${score.color}">Red</td>
-                            <td th:text="${score.runs}">0</td>
+                            <td data-score-value th:text="${score.runs}">0</td>
                         </tr>
                         </tbody>
                     </table>
@@ -497,7 +497,7 @@
                             </p>
                         </div>
 
-                        <p th:if="${!teamIsBatting}" class="muted">
+                        <p data-team-not-batting th:hidden="${teamIsBatting}" class="muted">
                             Your team is not currently batting. You can still edit your roster and update runs below.
                         </p>
 
@@ -528,7 +528,7 @@
                             </p>
                         </div>
 
-                        <div class="primary-game-actions" th:if="${teamIsBatting}">
+                        <div class="primary-game-actions" data-team-live-actions th:hidden="${!teamIsBatting}">
                             <form th:action="@{/manager/team/game/next-batter-info}" method="post" data-next-batter-form>
                                 <button type="submit" th:disabled="${gameState == null}">Next Batter</button>
                             </form>
@@ -556,7 +556,7 @@
                             <th>Actions</th>
                         </tr>
                         </thead>
-                        <tbody>
+                        <tbody th:attr="data-team-roster-body=${team.id}">
                         <tr th:each="entry : ${rosterEntries}"
                             class="lineup-row"
                             th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? ' current-batter' : ''}"
@@ -596,7 +596,7 @@
                         </tr>
                         </tbody>
                     </table>
-                    <p th:if="${#lists.isEmpty(rosterEntries)}" class="muted">No players have been assigned to your team yet.</p>
+                    <p th:attr="data-empty-roster-team-id=${team.id}" th:hidden="${!#lists.isEmpty(rosterEntries)}" class="muted">No players have been assigned to your team yet.</p>
 
                     <form th:action="@{/manager/team/teams/{teamId}/add-player(teamId=${team.id})}" method="post" class="add-player-form">
                         <label>Add registered player to this team</label>
@@ -628,6 +628,9 @@
      Thymeleaf 3 / Spring Security blocks direct access to java.lang.System from templates,
      so we intentionally avoid T(java.lang.System).currentTimeMillis() here.
      When this JavaScript changes again, bump the numeric version below. -->
-<script th:src="@{/js/walkup-player.js(v=2026070801)}"></script>
+<script th:src="@{/js/walkup-player.js(v=2026071102)}"></script>
+
+<!-- Phase 1 manager AJAX: keeps run, lineup, roster, and end-at-bat actions on-page. -->
+<script th:src="@{/js/manager-ajax.js(v=2026071102)}"></script>
 </body>
 </html>

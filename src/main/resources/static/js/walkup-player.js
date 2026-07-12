@@ -124,21 +124,76 @@
         };
     }
 
-    function csrfHeaders() {
-        const token = document.querySelector('meta[name="_csrf"]');
-        const header = document.querySelector('meta[name="_csrf_header"]');
+    /**
+     * Applies current-at-bat information from the manager JSON API.
+     *
+     * The roster rows and scores are rendered by manager-ajax.js. This helper
+     * owns the audio-specific fields and optionally starts the intro -> song
+     * sequence when the action was Next Batter.
+     */
+    function applyDashboardState(state, shouldPlayAudio) {
+        const info = state ? state.currentBatter : null;
+        const statusElement = document.querySelector('#walkup-status');
+        const currentBatterName = document.querySelector('#current-batter-name');
+        const currentBatterSong = document.querySelector('#current-batter-song');
+        const currentBattingTeam = document.querySelector('#current-batting-team');
+        const currentInning = document.querySelector('#current-inning');
+        const playCurrentButton = document.querySelector('#play-current-batter-audio');
 
-        if (!token || !header) {
-            return {};
+        if (currentInning && state && state.inning != null) {
+            currentInning.textContent = state.inning;
+        }
+        if (currentBattingTeam) {
+            currentBattingTeam.textContent = state && state.currentBattingTeamColor
+                ? state.currentBattingTeamColor
+                : 'None';
+        }
+        if (currentBatterName) {
+            currentBatterName.textContent = info && info.playerName ? info.playerName : 'None';
+        }
+        if (currentBatterSong) {
+            currentBatterSong.textContent = songLabel(info) || 'No song entered';
+        }
+        const context = window.ManagerAjax && typeof window.ManagerAjax.currentContext === 'function'
+            ? window.ManagerAjax.currentContext()
+            : { view: '', managedTeamId: null };
+        const currentTeamIsVisible = context.view !== 'team'
+            || !context.managedTeamId
+            || Number(state.currentBattingTeamId) === Number(context.managedTeamId);
+
+        document.querySelectorAll('[data-team-live-actions]').forEach(function (actions) {
+            actions.hidden = !currentTeamIsVisible;
+        });
+        document.querySelectorAll('[data-team-not-batting]').forEach(function (message) {
+            message.hidden = currentTeamIsVisible;
+        });
+
+        if (playCurrentButton) {
+            updateButtonAudioData(playCurrentButton, info || {});
+            playCurrentButton.disabled = !(state && state.gameInProgress
+                && currentTeamIsVisible
+                && info && (info.introPlayable || info.playable));
         }
 
-        return {
-            [header.getAttribute('content')]: token.getAttribute('content')
-        };
+        // A Team Manager page only renders that manager's own roster. When the
+        // other team is batting, there is intentionally no local row to mark.
+        if (info && currentTeamIsVisible) {
+            updateCurrentBatterIndicator(info, statusElement);
+        }
+
+        if (shouldPlayAudio && info && currentTeamIsVisible) {
+            playSequence(info, statusElement).catch(function () {
+                // playSequence already supplies a useful status message.
+            });
+        }
     }
 
     function wireAudioTestButtons() {
         document.querySelectorAll('[data-walkup-play-button]').forEach(function (button) {
+            if (button.dataset.walkupPlayWired === 'true') {
+                return;
+            }
+            button.dataset.walkupPlayWired = 'true';
             button.addEventListener('click', function () {
                 const statusSelector = button.getAttribute('data-status-target');
                 const statusElement = statusSelector ? document.querySelector(statusSelector) : null;
@@ -151,6 +206,10 @@
 
     function wireStopButtons() {
         document.querySelectorAll('[data-walkup-stop-button]').forEach(function (button) {
+            if (button.dataset.walkupStopWired === 'true') {
+                return;
+            }
+            button.dataset.walkupStopWired = 'true';
             button.addEventListener('click', function () {
                 stop();
                 const statusSelector = button.getAttribute('data-status-target');
@@ -164,69 +223,41 @@
 
     function wireNextBatterButton() {
         const form = document.querySelector('[data-next-batter-form]');
-        if (!form) {
+        if (!form || form.dataset.nextBatterWired === 'true') {
             return;
         }
+        form.dataset.nextBatterWired = 'true';
 
         form.addEventListener('submit', async function (event) {
             event.preventDefault();
 
             const statusElement = document.querySelector('#walkup-status');
-            const currentBatterName = document.querySelector('#current-batter-name');
-            const currentBatterSong = document.querySelector('#current-batter-song');
-            const currentBattingTeam = document.querySelector('#current-batting-team');
-            const currentInning = document.querySelector('#current-inning');
-            const playCurrentButton = document.querySelector('#play-current-batter-audio');
-
             if (statusElement) {
                 statusElement.textContent = 'Advancing to next batter...';
             }
 
+            if (!window.ManagerAjax) {
+                if (statusElement) {
+                    statusElement.textContent = 'Manager API client is not available. Refresh the page and try again.';
+                }
+                return;
+            }
+
+            const context = window.ManagerAjax.currentContext();
             try {
-                const response = await fetch(form.action, {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: csrfHeaders()
+                const state = await window.ManagerAjax.postJson('/manager/api/game/next-batter', {
+                    gameWeekId: context.gameWeekId,
+                    teamId: context.managedTeamId
                 });
 
-                if (!response.ok) {
-                    throw new Error('Unable to advance to the next batter.');
-                }
-
-                const info = await response.json();
-
-                if (currentBatterName) {
-                    currentBatterName.textContent = info.playerName || 'Current batter';
-                }
-                if (currentBatterSong) {
-                    currentBatterSong.textContent = songLabel(info) || 'No song entered';
-                }
-                if (currentBattingTeam && info.battingTeamColor) {
-                    currentBattingTeam.textContent = info.battingTeamColor;
-                }
-                if (currentInning && info.inning) {
-                    currentInning.textContent = info.inning;
-                }
-                if (playCurrentButton) {
-                    updateButtonAudioData(playCurrentButton, info);
-                    playCurrentButton.disabled = !(info.introPlayable || info.playable);
-                }
-
-                // Update the roster highlight before audio starts so the manager
-                // can immediately see who is at bat while audio plays.
-                const highlighted = updateCurrentBatterIndicator(info, statusElement);
-
-                // Even if the highlight fails, still play the audio. The status
-                // text will tell us which ids came back from the server.
-                await playSequence(info, statusElement);
-
-                if (!highlighted && statusElement) {
-                    statusElement.textContent += ' Highlight was not updated; refresh the page to resync.';
-                }
+                // Apply all server changes first, then begin audio while the
+                // manager's click still qualifies as a browser user gesture.
+                window.ManagerAjax.applyState(state, { playAudio: true });
             } catch (error) {
                 if (statusElement) {
                     statusElement.textContent = error.message || 'Unable to advance to next batter.';
                 }
+                window.ManagerAjax.showMessage(error.message || 'Unable to advance to next batter.', true);
             }
         });
     }
@@ -335,6 +366,10 @@
 
     function wireRemoveConfirmations() {
         document.querySelectorAll('.confirm-remove-player-form').forEach(function (form) {
+            if (form.dataset.removeConfirmWired === 'true') {
+                return;
+            }
+            form.dataset.removeConfirmWired = 'true';
             form.addEventListener('submit', function (event) {
                 const playerName = form.getAttribute('data-player-name') || 'this player';
                 if (!confirm('Remove ' + playerName + ' from this team?')) {
@@ -355,6 +390,7 @@
         stop: stop,
         playSequence: playSequence,
         updateCurrentBatterIndicator: updateCurrentBatterIndicator,
+        applyDashboardState: applyDashboardState,
         init: init
     };
 

@@ -600,7 +600,7 @@
     </style>
 </head>
 <body>
-<main class="page">
+<main class="page" data-manager-view="supervisor" th:attr="data-game-week-id=${selectedGameWeekId}">
     <nav class="manager-nav">
         <strong>League Supervisor Dashboard</strong>
         <div class="manager-nav-actions">
@@ -692,9 +692,9 @@
                         <section class="scoreboard-panel" th:attr="id=${'scoreboard-' + selectedGameWeekId}">
                             <span class="supervisor-section-label">Scoreboard</span>
                             <div class="scoreboard-list" th:if="${!#lists.isEmpty(scores)}">
-                                <div class="scoreboard-row" th:each="score : ${scores}">
+                                <div class="scoreboard-row" th:each="score : ${scores}" th:attr="data-score-team-id=${score.teamId}">
                                     <span class="score-team" th:text="${score.color}">Red</span>
-                                    <span class="score-value" th:text="${score.runs}">0</span>
+                                    <span class="score-value" data-score-value th:text="${score.runs}">0</span>
                                 </div>
                             </div>
                             <p th:if="${#lists.isEmpty(scores)}" class="muted">No teams have been created yet.</p>
@@ -802,7 +802,7 @@
                                         <th>Actions</th>
                                     </tr>
                                     </thead>
-                                    <tbody>
+                                    <tbody th:attr="data-team-roster-body=${team.id}">
                                     <tr th:each="entry : ${rosterEntries}"
                                         th:if="${entry.team.id == team.id}"
                                         class="lineup-row"
@@ -852,6 +852,9 @@
                                     </tr>
                                     </tbody>
                                 </table>
+                                <p class="muted" th:attr="data-empty-roster-team-id=${team.id}" hidden>
+                                    No players have been assigned to this team yet.
+                                </p>
 
                                 <form class="add-player-form" th:action="@{/manager/supervisor/teams/{teamId}/add-player(teamId=${team.id})}" method="post">
                                     <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
@@ -988,6 +991,9 @@
 </script>
 
 <!-- Cache-bust the game audio script so browsers pick up same-day game-management fixes immediately. -->
-<script th:src="@{/js/walkup-player.js(v=${#dates.createNow().time})}"></script>
+<script th:src="@{/js/walkup-player.js(v=2026071102)}"></script>
+
+<!-- Phase 1 manager AJAX: keeps run, lineup, roster, and end-at-bat actions on-page. -->
+<script th:src="@{/js/manager-ajax.js(v=2026071102)}"></script>
 </body>
 </html>
