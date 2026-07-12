@@ -8,6 +8,8 @@ import com.singleskickball.manager.service.GameManagementService;
 import com.singleskickball.manager.service.GameWeekService;
 import com.singleskickball.manager.service.LineupService;
 import com.singleskickball.manager.service.ManagerAccessService;
+import com.singleskickball.manager.service.ManagerDashboardStateService;
+import com.singleskickball.manager.service.ManagerLiveUpdateService;
 import com.singleskickball.manager.service.PlayerService;
 import com.singleskickball.manager.service.RosterService;
 import com.singleskickball.manager.service.WalkUpSongService;
@@ -45,6 +47,8 @@ public class SupervisorManagerController {
     private final GameManagementService gameManagementService;
     private final WalkUpSongService walkUpSongService;
     private final ManagerAccessService accessService;
+    private final ManagerDashboardStateService dashboardStateService;
+    private final ManagerLiveUpdateService liveUpdateService;
 
     public SupervisorManagerController(GameWeekService gameWeekService,
                                        RosterService rosterService,
@@ -52,7 +56,9 @@ public class SupervisorManagerController {
                                        LineupService lineupService,
                                        GameManagementService gameManagementService,
                                        WalkUpSongService walkUpSongService,
-                                       ManagerAccessService accessService) {
+                                       ManagerAccessService accessService,
+                                       ManagerDashboardStateService dashboardStateService,
+                                       ManagerLiveUpdateService liveUpdateService) {
         this.gameWeekService = gameWeekService;
         this.rosterService = rosterService;
         this.playerService = playerService;
@@ -60,6 +66,8 @@ public class SupervisorManagerController {
         this.gameManagementService = gameManagementService;
         this.walkUpSongService = walkUpSongService;
         this.accessService = accessService;
+        this.dashboardStateService = dashboardStateService;
+        this.liveUpdateService = liveUpdateService;
     }
 
     /**
@@ -105,8 +113,9 @@ public class SupervisorManagerController {
         accessService.requireLeagueSupervisor(authentication);
         GameWeek week = resolveWeek(gameWeekId);
         var summary = rosterService.generateTwoTeamRoster(week);
-        redirectAttributes.addFlashAttribute("message",
-                "Rosters created: " + summary.getPlayersAssigned() + " players assigned.");
+        String message = "Rosters created: " + summary.getPlayersAssigned() + " players assigned.";
+        redirectAttributes.addFlashAttribute("message", message);
+        publishDashboardState(week, message);
         return redirectToWeek(week);
     }
 
@@ -120,6 +129,7 @@ public class SupervisorManagerController {
         try {
             gameManagementService.startGame(week);
             redirectAttributes.addFlashAttribute("message", "Game started.");
+            publishDashboardState(week, "Game started.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
@@ -136,6 +146,7 @@ public class SupervisorManagerController {
         try {
             gameManagementService.endGame(week);
             redirectAttributes.addFlashAttribute("message", "Game ended. Runs and rosters were saved.");
+            publishDashboardState(week, "Game ended.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
@@ -152,6 +163,7 @@ public class SupervisorManagerController {
         try {
             gameManagementService.restartGame(week);
             redirectAttributes.addFlashAttribute("message", "Game restarted. Existing rosters and runs were preserved.");
+            publishDashboardState(week, "Game restarted.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
@@ -278,6 +290,7 @@ public class SupervisorManagerController {
         try {
             gameManagementService.resumeGame(week);
             redirectAttributes.addFlashAttribute("message", "Game resumed for " + week.getGameDate() + ".");
+            publishDashboardState(week, "Game resumed.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
@@ -294,6 +307,7 @@ public class SupervisorManagerController {
         try {
             gameManagementService.restartGame(week);
             redirectAttributes.addFlashAttribute("message", "Game restarted for " + week.getGameDate() + ".");
+            publishDashboardState(week, "Game restarted.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
@@ -310,6 +324,7 @@ public class SupervisorManagerController {
         try {
             gameManagementService.endGame(week);
             redirectAttributes.addFlashAttribute("message", "Game ended for " + week.getGameDate() + ".");
+            publishDashboardState(week, "Game ended.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
@@ -326,10 +341,22 @@ public class SupervisorManagerController {
         try {
             gameManagementService.reopenForAvailability(week);
             redirectAttributes.addFlashAttribute("message", "Game reopened for availability for " + week.getGameDate() + ".");
+            publishDashboardState(week, "Game reopened for availability.");
         } catch (RuntimeException ex) {
             redirectAttributes.addFlashAttribute("error", ex.getMessage());
         }
         return redirectToWeek(week);
+    }
+
+    /**
+     * Publishes a fresh authoritative snapshot after supervisor-only lifecycle
+     * actions such as start, end, resume, restart, or reopen availability.
+     *
+     * These actions still use normal redirects on the supervisor device, but
+     * other open manager dashboards receive the change immediately through SSE.
+     */
+    private void publishDashboardState(GameWeek week, String message) {
+        liveUpdateService.publish(dashboardStateService.buildState(week, message));
     }
 
     private WalkUpSongInfo getCurrentWalkUpSongInfo(GameState gameState) {

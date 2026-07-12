@@ -20,6 +20,8 @@
     'use strict';
 
     let requestInProgress = false;
+    let liveEventSource = null;
+    let liveReconnectTimer = null;
 
     function managerRoot() {
         return document.querySelector('main.page[data-manager-view]');
@@ -230,8 +232,35 @@
      * Applies one complete API snapshot. Exposed publicly so walkup-player.js can
      * use the exact same renderer after Next Batter.
      */
+    /**
+     * Returns whether the current HTML was rendered in the live-game layout.
+     *
+     * Thymeleaf conditionally creates the current-batter controls only while a
+     * game exists. JSON updates can change text and roster rows, but they cannot
+     * update controls that were never rendered. When a supervisor starts, ends,
+     * resumes, or restarts a game, one automatic refresh switches the remote
+     * browser into the correct layout. Normal scoring/lineup updates remain
+     * fully asynchronous and do not reload the page.
+     */
+    function pageWasRenderedForLiveGame() {
+        return document.getElementById('current-inning') !== null;
+    }
+
+    function requiresLifecycleRefresh(state) {
+        return Boolean(state && state.gameInProgress) !== pageWasRenderedForLiveGame();
+    }
+
     function applyState(state, options) {
         options = options || {};
+
+        if (requiresLifecycleRefresh(state)) {
+            // Replace the server-rendered pre-game/completed markup with the
+            // correct live-game markup (or vice versa). This happens only when
+            // the game lifecycle changes, never for ordinary manager actions.
+            disconnectLiveSync();
+            window.location.reload();
+            return;
+        }
         renderScores(state);
         renderRosters(state);
         renderAvailablePlayers(state);
@@ -305,10 +334,77 @@
         return String(value).replace(/"/g, '\\"');
     }
 
+
+    /**
+     * Opens one authenticated Server-Sent Events stream for the selected game.
+     * EventSource automatically sends the normal session cookie and reconnects
+     * after brief network interruptions. Remote snapshots never auto-play
+     * audio; audio remains controlled by the device that performed the action.
+     */
+    function connectLiveSync() {
+        const context = currentContext();
+        if (!context.gameWeekId || typeof window.EventSource === 'undefined') {
+            return;
+        }
+
+        disconnectLiveSync();
+        const url = '/manager/api/live/events?gameWeekId=' + encodeURIComponent(context.gameWeekId);
+        liveEventSource = new EventSource(url);
+
+        liveEventSource.addEventListener('connected', function () {
+            document.documentElement.dataset.managerLiveSync = 'connected';
+        });
+
+        liveEventSource.addEventListener('dashboard-state', function (event) {
+            let state;
+            try {
+                state = JSON.parse(event.data);
+            } catch (error) {
+                console.warn('Ignored an unreadable live manager update.', error);
+                return;
+            }
+
+            // A stale tab or changed route must never apply another game's state.
+            const latestContext = currentContext();
+            if (!latestContext.gameWeekId || Number(state.gameWeekId) !== latestContext.gameWeekId) {
+                return;
+            }
+
+            applyState(state, { playAudio: false });
+        });
+
+        liveEventSource.onerror = function () {
+            document.documentElement.dataset.managerLiveSync = 'reconnecting';
+
+            // Browsers normally reconnect EventSource automatically. The small
+            // fallback below handles cases where a proxy closes it permanently.
+            if (liveEventSource && liveEventSource.readyState === EventSource.CLOSED) {
+                disconnectLiveSync();
+                liveReconnectTimer = window.setTimeout(connectLiveSync, 3000);
+            }
+        };
+    }
+
+    function disconnectLiveSync() {
+        if (liveReconnectTimer) {
+            window.clearTimeout(liveReconnectTimer);
+            liveReconnectTimer = null;
+        }
+        if (liveEventSource) {
+            liveEventSource.close();
+            liveEventSource = null;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', connectLiveSync);
+    window.addEventListener('beforeunload', disconnectLiveSync);
+
     window.ManagerAjax = {
         postJson: postJson,
         applyState: applyState,
         currentContext: currentContext,
-        showMessage: showMessage
+        showMessage: showMessage,
+        connectLiveSync: connectLiveSync,
+        disconnectLiveSync: disconnectLiveSync
     };
 })(window, document);
