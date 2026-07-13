@@ -80,9 +80,26 @@ public class ManagerLiveUpdateService {
         SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MILLIS);
         Subscriber subscriber = new Subscriber(gameWeekId, deviceId, emitter);
 
-        subscribersByGameWeek
-                .computeIfAbsent(gameWeekId, ignored -> new CopyOnWriteArrayList<>())
-                .add(subscriber);
+        CopyOnWriteArrayList<Subscriber> subscribers =
+                subscribersByGameWeek.computeIfAbsent(
+                        gameWeekId,
+                        ignored -> new CopyOnWriteArrayList<>());
+
+        /*
+         * A browser can reconnect before Tomcat notices that its previous socket
+         * disappeared. Keep only the newest EventSource connection for a device.
+         * This is the main protection against repeatedly writing to stale mobile
+         * or refreshed-browser connections.
+         */
+        if (deviceId != null && !deviceId.isBlank()) {
+            for (Subscriber existing : subscribers) {
+                if (deviceId.equals(existing.deviceId)) {
+                    removeSubscriber(existing, false);
+                }
+            }
+        }
+
+        subscribers.add(subscriber);
 
         // Every normal and abnormal stream-ending path uses the same idempotent
         // cleanup routine. AtomicBoolean prevents duplicate completion work.
@@ -92,14 +109,16 @@ public class ManagerLiveUpdateService {
 
         // Confirm the stream immediately. This also detects clients that closed
         // before registration completed.
-        try {
-            sendEvent(subscriber, SseEmitter.event()
-                    .name("connected")
-                    .data(Map.of(
-                            "gameWeekId", gameWeekId,
-                            "connectedAt", Instant.now().toString())));
-        } catch (Exception error) {
-            removeSubscriber(subscriber, true);
+        boolean connected = trySendEvent(
+                subscriber,
+                SseEmitter.event()
+                        .name("connected")
+                        .data(Map.of(
+                                "gameWeekId", gameWeekId,
+                                "connectedAt", Instant.now().toString())));
+
+        if (!connected) {
+            removeSubscriber(subscriber, false);
         }
 
         return emitter;
@@ -136,30 +155,73 @@ public class ManagerLiveUpdateService {
     }
 
     /**
-     * Sends a batter audio command only when a dedicated target is selected.
-     * Browsers that are not the owner receive the event but ignore it by device id.
+     * Sends a batter audio command only to the currently selected audio device.
+     *
+     * <p>Earlier versions broadcast this event to every connected browser and
+     * relied on JavaScript to ignore commands for other devices. Targeting the
+     * subscriber on the server is quieter, avoids needless writes to stale
+     * connections, and guarantees that only the selected device is asked to play.</p>
      */
     public void publishAudioCommandIfTargeted(Long gameWeekId, WalkUpSongInfo batter) {
         AudioTargetState target = audioTargetsByGameWeek.get(gameWeekId);
-        if (target == null || batter == null) {
+        if (target == null || batter == null || target.getDeviceId() == null) {
             return;
         }
-        broadcastNamedEvent(gameWeekId, "audio-command", Map.of(
-                "targetDeviceId", target.getDeviceId(),
-                "batter", batter));
+
+        sendNamedEventToDevice(
+                gameWeekId,
+                target.getDeviceId(),
+                "audio-command",
+                Map.of(
+                        "targetDeviceId", target.getDeviceId(),
+                        "batter", batter));
+    }
+
+    /**
+     * Sends one named event only to subscribers belonging to a specific device.
+     *
+     * <p>A browser may briefly have more than one EventSource connection while
+     * reconnecting. Sending to every matching subscription is intentional; dead
+     * subscriptions are removed immediately after a failed write.</p>
+     */
+    private void sendNamedEventToDevice(Long gameWeekId,
+                                        String deviceId,
+                                        String eventName,
+                                        Object data) {
+        CopyOnWriteArrayList<Subscriber> subscribers =
+                subscribersByGameWeek.get(gameWeekId);
+
+        if (subscribers == null || deviceId == null) {
+            return;
+        }
+
+        for (Subscriber subscriber : subscribers) {
+            if (!deviceId.equals(subscriber.deviceId)) {
+                continue;
+            }
+
+            if (!trySendEvent(
+                    subscriber,
+                    SseEmitter.event().name(eventName).data(data))) {
+                removeSubscriber(subscriber, false);
+            }
+        }
     }
 
     /** Broadcasts a named SSE event to all viewers of one game. */
     private void broadcastNamedEvent(Long gameWeekId, String eventName, Object data) {
-        CopyOnWriteArrayList<Subscriber> subscribers = subscribersByGameWeek.get(gameWeekId);
+        CopyOnWriteArrayList<Subscriber> subscribers =
+                subscribersByGameWeek.get(gameWeekId);
+
         if (subscribers == null) {
             return;
         }
+
         for (Subscriber subscriber : subscribers) {
-            try {
-                sendEvent(subscriber, SseEmitter.event().name(eventName).data(data));
-            } catch (Exception error) {
-                removeSubscriber(subscriber, true);
+            if (!trySendEvent(
+                    subscriber,
+                    SseEmitter.event().name(eventName).data(data))) {
+                removeSubscriber(subscriber, false);
             }
         }
     }
@@ -181,15 +243,17 @@ public class ManagerLiveUpdateService {
         }
 
         for (Subscriber subscriber : subscribers) {
-            try {
-                sendEvent(subscriber, SseEmitter.event()
-                        .name("dashboard-state")
-                        .id(String.valueOf(System.nanoTime()))
-                        .data(state));
-            } catch (Exception error) {
-                // Closed tabs, refreshes, sleeping phones, and Wi-Fi changes are
-                // expected. Remove the stale subscriber and continue broadcasting.
-                removeSubscriber(subscriber, true);
+            boolean sent = trySendEvent(
+                    subscriber,
+                    SseEmitter.event()
+                            .name("dashboard-state")
+                            .id(String.valueOf(System.nanoTime()))
+                            .data(state));
+
+            if (!sent) {
+                // Do not call complete() on a socket that already failed during
+                // a write. Removing it is enough; EventSource reconnects itself.
+                removeSubscriber(subscriber, false);
             }
         }
     }
@@ -204,14 +268,16 @@ public class ManagerLiveUpdateService {
         try {
             subscribersByGameWeek.forEach((gameWeekId, subscribers) -> {
                 for (Subscriber subscriber : subscribers) {
-                    try {
-                        sendEvent(subscriber, SseEmitter.event()
-                                .name("heartbeat")
-                                .data(Instant.now().toString()));
-                    } catch (Throwable error) {
-                        // Catch Throwable here intentionally: this runs on a shared
-                        // scheduled task, which must survive all client disconnects.
-                        removeSubscriber(subscriber, true);
+                    boolean sent = trySendEvent(
+                            subscriber,
+                            SseEmitter.event()
+                                    .name("heartbeat")
+                                    .data(Instant.now().toString()));
+
+                    if (!sent) {
+                        // A heartbeat is a best-effort liveness check. A failed
+                        // socket is simply removed and allowed to reconnect.
+                        removeSubscriber(subscriber, false);
                     }
                 }
             });
@@ -219,6 +285,30 @@ public class ManagerLiveUpdateService {
             // Defensive final boundary: ScheduledExecutorService suppresses future
             // executions if an unchecked exception escapes a recurring task.
             LOGGER.warn("Unexpected error while sending manager SSE heartbeats.", error);
+        }
+    }
+
+    /**
+     * Best-effort SSE write used by all broadcast paths.
+     *
+     * <p>Client disconnects are normal: users refresh pages, phones sleep, and
+     * wireless networks change. Those failures must not escape into the JSON API
+     * request that triggered a broadcast or create noisy application exceptions.</p>
+     */
+    private boolean trySendEvent(Subscriber subscriber,
+                                 SseEmitter.SseEventBuilder event) {
+        try {
+            sendEvent(subscriber, event);
+            return true;
+        } catch (IOException | IllegalStateException error) {
+            LOGGER.debug("Discarding closed manager SSE connection: {}",
+                    error.getMessage());
+            return false;
+        } catch (RuntimeException error) {
+            // Converter/container implementations can wrap a closed socket in a
+            // RuntimeException. Treat it as a dead subscriber, not an API failure.
+            LOGGER.debug("Discarding failed manager SSE connection.", error);
+            return false;
         }
     }
 

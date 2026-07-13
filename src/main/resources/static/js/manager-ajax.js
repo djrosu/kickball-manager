@@ -192,6 +192,9 @@
             body.teamId = Number(match[1]);
             const select = form.querySelector('[name="playerId"]');
             body.playerId = select && select.value ? Number(select.value) : null;
+        } else if (action.indexOf('/game/start') >= 0) {
+            endpoint = '/manager/api/game/start';
+            body.teamId = context.managedTeamId;
         } else if (action.indexOf('/game/end-at-bat') >= 0) {
             endpoint = '/manager/api/game/end-at-bat';
             body.teamId = context.managedTeamId;
@@ -285,7 +288,6 @@
         const prefix = view === 'supervisor' ? '/manager/supervisor' : '/manager/team';
         const currentClass = entry.currentBatter ? ' current-batter' : '';
         const badgeStyle = entry.currentBatter ? 'display:inline-block' : 'display:none';
-        const disabled = gameInProgress ? '' : ' disabled';
         const disabledClass = gameInProgress ? '' : ' is-game-action-disabled';
         const name = escapeHtml(entry.displayName || entry.fullName || 'Player');
         const fullName = escapeHtml(entry.fullName || '');
@@ -297,25 +299,42 @@
             + (entry.currentBatter ? ' aria-current="true"' : '') + '>'
             + '<td class="lineup-order" data-label="Order">' + entry.battingOrder + '</td>'
             + '<td class="lineup-player-cell mobile-player-cell">'
+            + '<div class="mobile-player-card-header">'
+            + '<span class="mobile-order-label">Order: ' + entry.battingOrder + '</span>'
+            + '<div class="mobile-order-actions">'
+            + actionForm(prefix + '/lineup/' + entry.rosterEntryId + '/up',
+                '↑', 'secondary order-button', false, '', 'Move player up')
+            + actionForm(prefix + '/lineup/' + entry.rosterEntryId + '/down',
+                '↓', 'secondary order-button', false, '', 'Move player down')
+            + '</div></div>'
             + '<div class="lineup-player-name">' + name + '</div>'
             + '<div class="lineup-details">' + fullName + '</div>'
+            + '<div class="mobile-runs-label">Runs: <span>' + entry.runsScored + '</span></div>'
             + '<span class="current-batter-badge" style="' + badgeStyle + '">At Bat</span>'
             + '</td>'
-            + '<td data-label="Runs">' + entry.runsScored + '</td>'
+            + '<td class="lineup-runs" data-label="Runs">' + entry.runsScored + '</td>'
             + '<td class="mobile-actions-cell"><div class="lineup-actions">'
-            + actionForm(prefix + '/lineup/' + entry.rosterEntryId + '/up', '↑', 'secondary order-button', false)
-            + actionForm(prefix + '/lineup/' + entry.rosterEntryId + '/down', '↓', 'secondary order-button', false)
-            + actionForm(prefix + '/runs/' + entry.rosterEntryId, '+ Run', '', !gameInProgress, disabledClass)
-            + actionForm(prefix + '/runs/' + entry.rosterEntryId + '/remove', '- Run', 'secondary', !gameInProgress, disabledClass)
+            + actionForm(prefix + '/runs/' + entry.rosterEntryId,
+                '+ Run', 'run-action-button', !gameInProgress, disabledClass)
+            + actionForm(prefix + '/runs/' + entry.rosterEntryId + '/remove',
+                '- Run', 'secondary run-action-button', !gameInProgress, disabledClass)
             + '<form action="' + prefix + '/roster/' + entry.rosterEntryId + '/remove" method="post"'
-            + ' class="confirm-remove-player-form" data-player-name="' + escapeAttribute(entry.displayName || entry.fullName || 'this player') + '">'
-            + '<button type="submit" class="danger">Remove</button></form>'
+            + ' class="lineup-action-form remove-action-form confirm-remove-player-form"'
+            + ' data-player-name="' + escapeAttribute(entry.displayName || entry.fullName || 'this player') + '">'
+            + '<button type="submit" class="danger remove-action-button">Remove</button></form>'
             + '</div></td></tr>';
     }
 
-    function actionForm(action, label, buttonClass, isDisabled, formClass) {
-        return '<form action="' + action + '" method="post" class="' + (formClass || '') + '">'
+    /**
+     * Creates a progressive-enhancement form for dynamically rendered roster rows.
+     * The form still works without JavaScript; during normal operation this module
+     * intercepts it and calls the JSON API.
+     */
+    function actionForm(action, label, buttonClass, isDisabled, formClass, ariaLabel) {
+        return '<form action="' + action + '" method="post" class="lineup-action-form '
+            + (formClass || '') + '">'
             + '<button type="submit" class="' + (buttonClass || '') + '"'
+            + (ariaLabel ? ' aria-label="' + escapeAttribute(ariaLabel) + '"' : '')
             + (isDisabled ? ' disabled' : '') + '>' + label + '</button></form>';
     }
 
@@ -547,6 +566,19 @@
         disconnectLiveSync: disconnectLiveSync,
         hasDedicatedAudioTarget: hasDedicatedAudioTarget,
         isThisDeviceAudioTarget: isThisDeviceAudioTarget,
-        audioDeviceId: audioDeviceId
+        audioDeviceId: audioDeviceId,
+
+        /**
+         * Requests current-batter playback through the server. This is used when
+         * a dedicated audio target is active so the click is routed to the owner
+         * device instead of playing on the manager device that clicked.
+         */
+        requestRoutedCurrentBatterAudio: function () {
+            const context = currentContext();
+            return postJson('/manager/api/audio/play-current', {
+                gameWeekId: context.gameWeekId,
+                teamId: context.managedTeamId
+            });
+        }
     };
 })(window, document);

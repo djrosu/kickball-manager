@@ -201,9 +201,40 @@
                 return;
             }
             button.dataset.walkupPlayWired = 'true';
-            button.addEventListener('click', function () {
+            button.addEventListener('click', async function () {
                 const statusSelector = button.getAttribute('data-status-target');
-                const statusElement = statusSelector ? document.querySelector(statusSelector) : null;
+                const statusElement =
+                    statusSelector ? document.querySelector(statusSelector) : null;
+
+                /*
+                 * The live-game "Play Current Batter Audio" button must honor a
+                 * dedicated audio target exactly like Next Batter does. Upload-page
+                 * test buttons intentionally remain local to the browser being used.
+                 */
+                const isCurrentBatterButton =
+                    button.id === 'play-current-batter-audio';
+
+                if (isCurrentBatterButton
+                        && window.ManagerAjax
+                        && window.ManagerAjax.hasDedicatedAudioTarget()) {
+                    if (statusElement) {
+                        statusElement.textContent =
+                            'Sending current batter audio to the selected audio device...';
+                    }
+
+                    try {
+                        await window.ManagerAjax.requestRoutedCurrentBatterAudio();
+                    } catch (error) {
+                        const message =
+                            error.message || 'Unable to route current batter audio.';
+                        if (statusElement) {
+                            statusElement.textContent = message;
+                        }
+                        window.ManagerAjax.showMessage(message, true);
+                    }
+                    return;
+                }
+
                 playSequence(infoFromButton(button), statusElement).catch(function () {
                     // Error message is already displayed by playSequence.
                 });

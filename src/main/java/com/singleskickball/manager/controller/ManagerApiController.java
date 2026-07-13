@@ -127,6 +127,30 @@ public class ManagerApiController {
         return buildPublishAndReturn(team.getGameWeek(), "Player added to roster.");
     }
 
+    /**
+     * Starts live tracking for the selected game.
+     *
+     * <p>Either the League Supervisor or any Team Manager assigned to this game
+     * may start it. Publishing the resulting snapshot immediately causes every
+     * connected manager dashboard to transition into the live-game controls.</p>
+     */
+    @PostMapping("/game/start")
+    public ManagerDashboardState startGame(@RequestBody ManagerActionRequest request,
+                                           Authentication authentication) {
+        GameWeek week = resolveWeek(request.getGameWeekId());
+
+        // Validates that the caller is the League Supervisor or manages one of
+        // this game's teams. The helper already handles both roles.
+        requireManagerAccess(week, authentication);
+
+        if (gameManagementService.getGameState(week).isPresent()) {
+            throw new IllegalStateException("This game has already been started.");
+        }
+
+        gameManagementService.startGame(week);
+        return buildPublishAndReturn(week, "Game started.");
+    }
+
     /** Advances to the next batter for the currently batting team. */
     @PostMapping("/game/next-batter")
     public ManagerDashboardState nextBatter(@RequestBody ManagerActionRequest request,
@@ -150,6 +174,34 @@ public class ManagerApiController {
     }
 
 
+
+    /**
+     * Routes the current batter's audio according to the game's active audio mode.
+     *
+     * <p>When a dedicated audio target has been selected, this endpoint sends an
+     * SSE audio command only to that target device. The browser that clicked the
+     * button does not play locally unless it is the selected target. When no
+     * dedicated target exists, the client keeps the normal local-play behavior.</p>
+     */
+    @PostMapping("/audio/play-current")
+    public ManagerDashboardState playCurrentBatterAudio(@RequestBody ManagerActionRequest request,
+                                                        Authentication authentication) {
+        GameWeek week = resolveWeek(request.getGameWeekId());
+        requireManagerAccess(week, authentication);
+        requireGameInProgress(week);
+
+        ManagerDashboardState state =
+                dashboardStateService.buildState(week, "Current batter audio requested.");
+
+        if (state.getCurrentBatter() == null) {
+            throw new IllegalStateException("There is no current batter.");
+        }
+
+        liveUpdateService.publishAudioCommandIfTargeted(
+                week.getId(), state.getCurrentBatter());
+
+        return state;
+    }
 
     /** Claims all walk-up audio for the requesting manager device. */
     @PostMapping("/audio-target/claim")
