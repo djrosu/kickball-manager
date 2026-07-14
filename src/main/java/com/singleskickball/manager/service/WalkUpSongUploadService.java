@@ -76,10 +76,23 @@ public class WalkUpSongUploadService {
         Path targetFile = walkupDirectory.resolve(safeFilename).normalize();
         ensureTargetWithinDirectory(targetFile, walkupDirectory);
 
+        /*
+         * Write the replacement first. Only after the new file is safely stored
+         * do we update the database and remove the previous managed file. This
+         * prevents a failed upload from deleting the player's working song.
+         */
         copyUpload(file, targetFile);
 
-        player.setWalkUpSongFilePath("/uploads/walkup-songs/" + safeFilename);
+        String previousFilePath = player.getWalkUpSongFilePath();
+        String newBrowserPath = "/uploads/walkup-songs/" + safeFilename;
+
+        player.setWalkUpSongFilePath(newBrowserPath);
         playerRepository.save(player);
+
+        if (previousFilePath != null
+                && !previousFilePath.equals(newBrowserPath)) {
+            deleteManagedWalkUpFileIfPresent(previousFilePath);
+        }
     }
 
     /**
@@ -159,6 +172,23 @@ public class WalkUpSongUploadService {
         row.setWalkUpSongFilename(hasWalkUp ? filenameFromPath(walkUpPath) : null);
 
         return row;
+    }
+
+    /**
+     * Converts the stored file reference into a URL that the browser can play.
+     *
+     * <p>This is public so both the League Supervisor page and the player's own
+     * home page use the same path-normalization rules.</p>
+     */
+    public String toPublicBrowserUrl(String filePath) {
+        return toBrowserUrl(filePath);
+    }
+
+    /**
+     * Returns only the final filename for compact display on the player page.
+     */
+    public String filenameForDisplay(String filePath) {
+        return filenameFromPath(filePath);
     }
 
     private void validateMp3(MultipartFile file) {
