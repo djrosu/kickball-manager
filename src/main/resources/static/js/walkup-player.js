@@ -41,7 +41,18 @@
                 return;
             }
 
-            const audio = new Audio(url);
+            /*
+             * Uploaded MP3s may be replaced while retaining the same filename
+             * (for example /uploads/walkup-intros/12.mp3). Add a fresh query
+             * value so the browser requests the new bytes immediately instead
+             * of replaying its cached copy.
+             */
+            const separator = String(url).includes('?') ? '&' : '?';
+            const playbackUrl = String(url).startsWith('/uploads/')
+                ? String(url) + separator + 'v=' + Date.now()
+                : String(url);
+
+            const audio = new Audio(playbackUrl);
             currentAudio = audio;
 
             audio.addEventListener('ended', function () {
@@ -287,47 +298,71 @@
         });
     }
 
-    function wireNextBatterButton() {
-        const form = document.querySelector('[data-next-batter-form]');
-        if (!form || form.dataset.nextBatterWired === 'true') {
-            return;
-        }
-        form.dataset.nextBatterWired = 'true';
-
-        form.addEventListener('submit', async function (event) {
-            event.preventDefault();
-
-            const statusElement = document.querySelector('#walkup-status');
-            if (statusElement) {
-                statusElement.textContent = 'Advancing to next batter...';
-            }
-
-            if (!window.ManagerAjax) {
-                if (statusElement) {
-                    statusElement.textContent = 'Manager API client is not available. Refresh the page and try again.';
-                }
+    /**
+     * Wires both Next Batter and Previous Batter controls.
+     *
+     * <p>Both actions stop between-at-bat music on the server, update the
+     * highlighted player, and play the selected batter's intro/walk-up audio.
+     * Dedicated audio routing is honored automatically.</p>
+     */
+    function wireBatterNavigationButtons() {
+        document.querySelectorAll(
+            '[data-next-batter-form], [data-previous-batter-form]'
+        ).forEach(function (form) {
+            if (form.dataset.batterNavigationWired === 'true') {
                 return;
             }
+            form.dataset.batterNavigationWired = 'true';
 
-            const context = window.ManagerAjax.currentContext();
-            try {
-                const state = await window.ManagerAjax.postJson('/manager/api/game/next-batter', {
-                    gameWeekId: context.gameWeekId,
-                    teamId: context.managedTeamId,
-                    deviceId: window.ManagerAjax.audioDeviceId()
-                });
+            form.addEventListener('submit', async function (event) {
+                event.preventDefault();
 
-                // Apply all server changes first, then begin audio while the
-                // manager's click still qualifies as a browser user gesture.
-                window.ManagerAjax.applyState(state, {
-                    playAudio: !window.ManagerAjax.hasDedicatedAudioTarget()
-                });
-            } catch (error) {
+                const isPrevious =
+                    form.hasAttribute('data-previous-batter-form');
+                const directionLabel = isPrevious ? 'previous' : 'next';
+                const endpoint = isPrevious
+                    ? '/manager/api/game/previous-batter'
+                    : '/manager/api/game/next-batter';
+
+                const statusElement = document.querySelector('#walkup-status');
                 if (statusElement) {
-                    statusElement.textContent = error.message || 'Unable to advance to next batter.';
+                    statusElement.textContent =
+                        'Moving to ' + directionLabel + ' batter...';
                 }
-                window.ManagerAjax.showMessage(error.message || 'Unable to advance to next batter.', true);
-            }
+
+                if (!window.ManagerAjax) {
+                    if (statusElement) {
+                        statusElement.textContent =
+                            'Manager API client is not available. Refresh the page and try again.';
+                    }
+                    return;
+                }
+
+                const context = window.ManagerAjax.currentContext();
+
+                try {
+                    const state = await window.ManagerAjax.postJson(endpoint, {
+                        gameWeekId: context.gameWeekId,
+                        teamId: context.managedTeamId,
+                        deviceId: window.ManagerAjax.audioDeviceId()
+                    });
+
+                    // The initiating browser plays only in default audio mode.
+                    // With a dedicated target, the server sends an SSE command
+                    // directly to the selected audio device.
+                    window.ManagerAjax.applyState(state, {
+                        playAudio:
+                            !window.ManagerAjax.hasDedicatedAudioTarget()
+                    });
+                } catch (error) {
+                    const message = error.message
+                        || 'Unable to move to the ' + directionLabel + ' batter.';
+                    if (statusElement) {
+                        statusElement.textContent = message;
+                    }
+                    window.ManagerAjax.showMessage(message, true);
+                }
+            });
         });
     }
 
@@ -451,7 +486,7 @@
     function init() {
         wireAudioTestButtons();
         wireStopButtons();
-        wireNextBatterButton();
+        wireBatterNavigationButtons();
         wireRemoveConfirmations();
     }
 

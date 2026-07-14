@@ -172,6 +172,30 @@ public class ManagerApiController {
         return state;
     }
 
+    /**
+     * Moves back one batter and plays that batter's audio using the same routing
+     * rules as Next Batter.
+     */
+    @PostMapping("/game/previous-batter")
+    public ManagerDashboardState previousBatter(@RequestBody ManagerActionRequest request,
+                                                Authentication authentication) {
+        GameWeek week = resolveWeek(request.getGameWeekId());
+        requireLiveGameActionAccess(week, request.getTeamId(), authentication);
+
+        // Any field-change music must stop before the corrected batter audio.
+        liveUpdateService.stopBetweenAtBatAudio(week.getId());
+
+        gameManagementService.previousBatter(week);
+        ManagerDashboardState state =
+                buildPublishAndReturn(week, "Moved to previous batter.");
+
+        liveUpdateService.publishAudioCommandIfTargeted(
+                week.getId(),
+                state.getCurrentBatter());
+
+        return state;
+    }
+
     /** Ends the current at-bat and switches to the other team. */
     @PostMapping("/game/end-at-bat")
     public ManagerDashboardState endAtBat(@RequestBody ManagerActionRequest request,
@@ -195,6 +219,31 @@ public class ManagerApiController {
     }
 
 
+
+    /**
+     * Requests the next alphabetical between-at-bat MP3 after the current song
+     * finishes on the assigned audio device.
+     */
+    @PostMapping("/audio/between-at-bat/next")
+    public ManagerDashboardState nextBetweenAtBatSong(
+            @RequestBody ManagerActionRequest request,
+            Authentication authentication) {
+        GameWeek week = resolveWeek(request.getGameWeekId());
+        requireManagerAccess(week, authentication);
+        requireGameInProgress(week);
+
+        String songUrl = betweenAtBatSongService.nextSongUrl(week.getId());
+        liveUpdateService.continueBetweenAtBatSong(
+                week.getId(),
+                request.getDeviceId(),
+                songUrl);
+
+        // No game state changed, but returning the normal snapshot keeps the API
+        // response format consistent for the JavaScript client.
+        return dashboardStateService.buildState(
+                week,
+                "Between-at-bat playlist continued.");
+    }
 
     /**
      * Routes the current batter's audio according to the game's active audio mode.

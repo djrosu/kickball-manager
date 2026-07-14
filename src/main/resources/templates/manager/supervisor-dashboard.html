@@ -647,8 +647,9 @@
 
         .mobile-order-label {
             color: var(--muted);
-            font-size: 1rem;
-            font-weight: 800;
+            font-size: 1.45rem;
+            line-height: 1;
+            font-weight: 900;
         }
 
         .mobile-order-actions {
@@ -894,9 +895,22 @@
                                 </div>
 
                                 <div class="button-row">
-                                    <form th:action="@{/manager/supervisor/game/next-batter-info}" method="post" data-next-batter-form>
-                                        <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                        <button type="submit" th:disabled="${gameState == null}">Next Batter</button>
+                                    <form th:action="@{/manager/supervisor/game/previous-batter-info}"
+                                          method="post"
+                                          data-previous-batter-form>
+                                        <input type="hidden" name="gameWeekId"
+                                               th:value="${selectedGameWeekId}">
+                                        <button type="submit" class="secondary"
+                                                th:disabled="${gameState == null}">Previous Batter</button>
+                                    </form>
+
+                                    <form th:action="@{/manager/supervisor/game/next-batter-info}"
+                                          method="post"
+                                          data-next-batter-form>
+                                        <input type="hidden" name="gameWeekId"
+                                               th:value="${selectedGameWeekId}">
+                                        <button type="submit"
+                                                th:disabled="${gameState == null}">Next Batter</button>
                                     </form>
 
                                     <form th:action="@{/manager/supervisor/game/end-at-bat}" method="post">
@@ -950,7 +964,7 @@
                                             <!-- Mobile-only header: wide lineup arrows are right-justified. -->
                                             <div class="mobile-player-card-header">
                                                 <span class="mobile-order-label"
-                                                      th:text="'Order: ' + ${entry.battingOrder}">Order: 1</span>
+                                                      th:text="'#' + ${entry.battingOrder}">#1</span>
                                                 <div class="mobile-order-actions">
                                                     <form th:action="@{/manager/supervisor/lineup/{id}/up(id=${entry.id})}"
                                                           method="post"
@@ -1154,9 +1168,9 @@
 </script>
 
 <!-- Cache-bust the game audio script so browsers pick up same-day game-management fixes immediately. -->
-<script th:src="@{/js/walkup-player.js(v=2026071302)}"></script>
+<script th:src="@{/js/walkup-player.js(v=2026071401)}"></script>
 
 <!-- Phase 1 manager AJAX: keeps run, lineup, roster, and end-at-bat actions on-page. -->
-<script th:src="@{/js/manager-ajax.js(v=2026071302)}"></script>
+<script th:src="@{/js/manager-ajax.js(v=2026071401)}"></script>
 </body>
 </html>

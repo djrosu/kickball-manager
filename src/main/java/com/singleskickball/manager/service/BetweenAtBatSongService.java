@@ -67,6 +67,10 @@ public class BetweenAtBatSongService {
     /**
      * Returns the next song URL for this game and advances its in-memory index.
      *
+     * <p>This method is used both when an at-bat ends and whenever the currently
+     * playing break song finishes. Therefore the index always represents the
+     * next unplayed song, even when several songs play during one field change.</p>
+     *
      * <p>If songs are added or removed, modulo arithmetic automatically keeps
      * the index inside the current list.</p>
      */

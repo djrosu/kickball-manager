@@ -302,7 +302,7 @@
             + '<td class="lineup-order" data-label="Order">' + entry.battingOrder + '</td>'
             + '<td class="lineup-player-cell mobile-player-cell">'
             + '<div class="mobile-player-card-header">'
-            + '<span class="mobile-order-label">Order: ' + entry.battingOrder + '</span>'
+            + '<span class="mobile-order-label">#' + entry.battingOrder + '</span>'
             + '<div class="mobile-order-actions">'
             + actionForm(prefix + '/lineup/' + entry.rosterEntryId + '/up',
                 '↑', 'secondary order-button', false, '', 'Move player up')
@@ -470,6 +470,20 @@
      * after brief network interruptions. Remote snapshots never auto-play
      * audio; audio remains controlled by the device that performed the action.
      */
+    /**
+     * Called by the assigned audio browser whenever one between-at-bat MP3 ends.
+     * The server verifies that this device still owns the active break-music
+     * session before sending another song.
+     */
+    function requestNextBetweenAtBatSong() {
+        const context = currentContext();
+        return postJson('/manager/api/audio/between-at-bat/next', {
+            gameWeekId: context.gameWeekId,
+            teamId: context.managedTeamId,
+            deviceId: audioDeviceId()
+        });
+    }
+
     function connectLiveSync() {
         const context = currentContext();
         if (!context.gameWeekId || typeof window.EventSource === 'undefined') {
@@ -542,7 +556,13 @@
                         command.audioUrl,
                         'Playing between-at-bat music...',
                         statusElement
-                    ).catch(function () {
+                    ).then(function () {
+                        /*
+                         * Continue alphabetically until Next/Previous Batter
+                         * stops the break-music session on the server.
+                         */
+                        return requestNextBetweenAtBatSong();
+                    }).catch(function () {
                         // WalkupPlayer shows the browser/media error.
                     });
                 }
@@ -602,6 +622,8 @@
          * a dedicated audio target is active so the click is routed to the owner
          * device instead of playing on the manager device that clicked.
          */
+        requestNextBetweenAtBatSong: requestNextBetweenAtBatSong,
+
         requestRoutedCurrentBatterAudio: function () {
             const context = currentContext();
             return postJson('/manager/api/audio/play-current', {
