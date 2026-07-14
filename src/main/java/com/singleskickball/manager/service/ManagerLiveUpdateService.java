@@ -53,6 +53,14 @@ public class ManagerLiveUpdateService {
      * in memory: selecting an audio device is temporary game-session state. */
     private final Map<Long, AudioTargetState> audioTargetsByGameWeek = new ConcurrentHashMap<>();
 
+    /**
+     * Device currently playing between-at-bat music for each game. This lets a
+     * later Next Batter action stop the correct browser even when another
+     * manager initiated the next-batter command.
+     */
+    private final Map<Long, String> betweenAtBatAudioDeviceByGameWeek =
+            new ConcurrentHashMap<>();
+
     /** One subscriber list per game prevents cross-game broadcasts. */
     private final Map<Long, CopyOnWriteArrayList<Subscriber>> subscribersByGameWeek =
             new ConcurrentHashMap<>();
@@ -152,6 +160,59 @@ public class ManagerLiveUpdateService {
         AudioTargetState state = getAudioTargetState(gameWeekId);
         broadcastNamedEvent(gameWeekId, "audio-target-state", state);
         return state;
+    }
+
+    /**
+     * Starts one between-at-bat song on the selected audio controller, or on the
+     * device that ended the at-bat when no dedicated controller is selected.
+     */
+    public void publishBetweenAtBatSong(Long gameWeekId,
+                                        String initiatingDeviceId,
+                                        String songUrl) {
+        if (songUrl == null || songUrl.isBlank()) {
+            return;
+        }
+
+        AudioTargetState target = audioTargetsByGameWeek.get(gameWeekId);
+        String destinationDeviceId =
+                target != null && target.isTargeted()
+                        ? target.getDeviceId()
+                        : initiatingDeviceId;
+
+        if (destinationDeviceId == null || destinationDeviceId.isBlank()) {
+            return;
+        }
+
+        betweenAtBatAudioDeviceByGameWeek.put(gameWeekId, destinationDeviceId);
+
+        sendNamedEventToDevice(
+                gameWeekId,
+                destinationDeviceId,
+                "between-at-bat-audio",
+                Map.of(
+                        "targetDeviceId", destinationDeviceId,
+                        "audioUrl", songUrl));
+    }
+
+    /**
+     * Stops any between-at-bat music currently playing for this game.
+     *
+     * <p>This is called before Next Batter advances. The stop command is routed
+     * to the device that actually received the break-music command.</p>
+     */
+    public void stopBetweenAtBatAudio(Long gameWeekId) {
+        String destinationDeviceId =
+                betweenAtBatAudioDeviceByGameWeek.remove(gameWeekId);
+
+        if (destinationDeviceId == null || destinationDeviceId.isBlank()) {
+            return;
+        }
+
+        sendNamedEventToDevice(
+                gameWeekId,
+                destinationDeviceId,
+                "audio-stop",
+                Map.of("reason", "next-batter"));
     }
 
     /**

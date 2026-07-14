@@ -61,6 +61,34 @@
         });
     }
 
+    /**
+     * Plays one ordinary MP3, replacing any currently playing walk-up or break
+     * audio. Used for the between-at-bat playlist.
+     */
+    async function playStandalone(url, message, statusElement) {
+        stop();
+
+        if (!hasText(url)) {
+            return;
+        }
+
+        if (statusElement) {
+            statusElement.textContent = message || 'Playing audio...';
+        }
+
+        try {
+            await playUrl(url);
+            if (statusElement) {
+                statusElement.textContent = 'Audio finished.';
+            }
+        } catch (error) {
+            if (statusElement) {
+                statusElement.textContent = 'Audio was blocked or could not be played.';
+            }
+            throw error;
+        }
+    }
+
     function songLabel(info) {
         if (!info) {
             return '';
@@ -285,7 +313,8 @@
             try {
                 const state = await window.ManagerAjax.postJson('/manager/api/game/next-batter', {
                     gameWeekId: context.gameWeekId,
-                    teamId: context.managedTeamId
+                    teamId: context.managedTeamId,
+                    deviceId: window.ManagerAjax.audioDeviceId()
                 });
 
                 // Apply all server changes first, then begin audio while the
@@ -428,6 +457,7 @@
 
     window.WalkupPlayer = {
         stop: stop,
+        playStandalone: playStandalone,
         playSequence: playSequence,
         updateCurrentBatterIndicator: updateCurrentBatterIndicator,
         applyDashboardState: applyDashboardState,

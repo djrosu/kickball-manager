@@ -195,9 +195,11 @@
         } else if (action.indexOf('/game/start') >= 0) {
             endpoint = '/manager/api/game/start';
             body.teamId = context.managedTeamId;
+            body.deviceId = audioDeviceId();
         } else if (action.indexOf('/game/end-at-bat') >= 0) {
             endpoint = '/manager/api/game/end-at-bat';
             body.teamId = context.managedTeamId;
+            body.deviceId = audioDeviceId();
         }
 
         return endpoint ? { endpoint: endpoint, body: body } : null;
@@ -525,6 +527,33 @@
                 }
             } catch (error) {
                 console.warn('Ignored an unreadable audio command.', error);
+            }
+        });
+
+        liveEventSource.addEventListener('between-at-bat-audio', function (event) {
+            try {
+                const command = JSON.parse(event.data);
+                if (command.targetDeviceId !== audioDeviceId()) {
+                    return;
+                }
+                if (window.WalkupPlayer && command.audioUrl) {
+                    const statusElement = document.querySelector('#walkup-status');
+                    window.WalkupPlayer.playStandalone(
+                        command.audioUrl,
+                        'Playing between-at-bat music...',
+                        statusElement
+                    ).catch(function () {
+                        // WalkupPlayer shows the browser/media error.
+                    });
+                }
+            } catch (error) {
+                console.warn('Ignored an unreadable between-at-bat audio command.', error);
+            }
+        });
+
+        liveEventSource.addEventListener('audio-stop', function () {
+            if (window.WalkupPlayer) {
+                window.WalkupPlayer.stop();
             }
         });
 

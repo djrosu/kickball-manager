@@ -10,6 +10,7 @@ import com.singleskickball.manager.model.Player;
 import com.singleskickball.manager.model.Team;
 import com.singleskickball.manager.model.TeamRosterEntry;
 import com.singleskickball.manager.repository.TeamRosterEntryRepository;
+import com.singleskickball.manager.service.BetweenAtBatSongService;
 import com.singleskickball.manager.service.GameManagementService;
 import com.singleskickball.manager.service.GameWeekService;
 import com.singleskickball.manager.service.LineupService;
@@ -46,6 +47,7 @@ public class ManagerApiController {
     private final TeamRosterEntryRepository rosterEntryRepository;
     private final ManagerDashboardStateService dashboardStateService;
     private final ManagerLiveUpdateService liveUpdateService;
+    private final BetweenAtBatSongService betweenAtBatSongService;
 
     public ManagerApiController(GameWeekService gameWeekService,
                                 RosterService rosterService,
@@ -54,7 +56,8 @@ public class ManagerApiController {
                                 ManagerAccessService accessService,
                                 TeamRosterEntryRepository rosterEntryRepository,
                                 ManagerDashboardStateService dashboardStateService,
-                                ManagerLiveUpdateService liveUpdateService) {
+                                ManagerLiveUpdateService liveUpdateService,
+                                BetweenAtBatSongService betweenAtBatSongService) {
         this.gameWeekService = gameWeekService;
         this.rosterService = rosterService;
         this.lineupService = lineupService;
@@ -63,6 +66,7 @@ public class ManagerApiController {
         this.rosterEntryRepository = rosterEntryRepository;
         this.dashboardStateService = dashboardStateService;
         this.liveUpdateService = liveUpdateService;
+        this.betweenAtBatSongService = betweenAtBatSongService;
     }
 
     /** Adds one run to a weekly roster entry. */
@@ -157,6 +161,11 @@ public class ManagerApiController {
                                             Authentication authentication) {
         GameWeek week = resolveWeek(request.getGameWeekId());
         requireLiveGameActionAccess(week, request.getTeamId(), authentication);
+
+        // Stop break music before changing the highlighted batter or starting
+        // the intro/walk-up sequence.
+        liveUpdateService.stopBetweenAtBatAudio(week.getId());
+
         gameManagementService.nextBatter(week);
         ManagerDashboardState state = buildPublishAndReturn(week, "Advanced to next batter.");
         liveUpdateService.publishAudioCommandIfTargeted(week.getId(), state.getCurrentBatter());
@@ -169,8 +178,20 @@ public class ManagerApiController {
                                           Authentication authentication) {
         GameWeek week = resolveWeek(request.getGameWeekId());
         requireLiveGameActionAccess(week, request.getTeamId(), authentication);
+
         gameManagementService.endAtBat(week);
-        return buildPublishAndReturn(week, "At-bat ended. Switched teams.");
+        ManagerDashboardState state =
+                buildPublishAndReturn(week, "At-bat ended. Switched teams.");
+
+        // Play one alphabetical break song. Dedicated audio routing wins; when
+        // none is selected, the device that clicked End At-Bat plays it.
+        String songUrl = betweenAtBatSongService.nextSongUrl(week.getId());
+        liveUpdateService.publishBetweenAtBatSong(
+                week.getId(),
+                request.getDeviceId(),
+                songUrl);
+
+        return state;
     }
 
 

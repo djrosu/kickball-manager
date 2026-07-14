@@ -22,6 +22,12 @@ public class ManagerActionRequest {
     /** Registered player being added to a team. */
     private Long playerId;
 
+    /**
+     * Stable browser/device id used only for temporary live-audio routing.
+     * This is not persisted and is not a hardware identifier.
+     */
+    private String deviceId;
+
     public Long getGameWeekId() { return gameWeekId; }
     public void setGameWeekId(Long gameWeekId) { this.gameWeekId = gameWeekId; }
 
@@ -33,4 +39,7 @@ public class ManagerActionRequest {
 
     public Long getPlayerId() { return playerId; }
     public void setPlayerId(Long playerId) { this.playerId = playerId; }
+
+    public String getDeviceId() { return deviceId; }
+    public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
 }

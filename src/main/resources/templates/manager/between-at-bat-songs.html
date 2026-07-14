@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Between At-Bat Songs | Singles, Sports and Social</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <style>
+        .playlist {
+            display: grid;
+            gap: .75rem;
+        }
+
+        .song-item {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: .85rem;
+            background: #fff;
+        }
+
+        .song-name {
+            font-weight: 800;
+            overflow-wrap: anywhere;
+        }
+
+        .song-actions {
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .song-actions audio {
+            max-width: 280px;
+        }
+
+        .upload-form {
+            display: flex;
+            gap: .75rem;
+            align-items: end;
+            flex-wrap: wrap;
+        }
+
+        .upload-form label {
+            flex: 1 1 280px;
+        }
+
+        @media (max-width: 700px) {
+            .song-item {
+                grid-template-columns: 1fr;
+            }
+
+            .song-actions {
+                justify-content: flex-start;
+            }
+
+            .song-actions audio {
+                width: 100%;
+                max-width: none;
+            }
+        }
+    </style>
+</head>
+<body>
+<main class="page">
+    <nav class="topbar">
+        <strong>Between At-Bat Songs</strong>
+        <span>
+            <a th:href="@{/manager/supervisor}">Supervisor Dashboard</a>
+            <a th:href="@{/manager/walk-up-songs}">Walk-Up Songs</a>
+        </span>
+    </nav>
+
+    <div class="success" th:if="${message}" th:text="${message}"></div>
+    <div class="error" th:if="${error}" th:text="${error}"></div>
+
+    <section class="card hero">
+        <h1>Manage Between At-Bat Music</h1>
+        <p class="muted">
+            These MP3s are stored in <code>/uploads/songs</code> and played
+            alphabetically, one song per at-bat change. Each game remembers its
+            next song in memory.
+        </p>
+    </section>
+
+    <section class="card">
+        <h2>Upload MP3</h2>
+        <form class="upload-form"
+              th:action="@{/manager/between-at-bat-songs/upload}"
+              method="post"
+              enctype="multipart/form-data">
+            <label>
+                MP3 file
+                <input type="file" name="file" accept="audio/mpeg,.mp3" required>
+            </label>
+            <button type="submit">Upload Song</button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Alphabetical Playlist</h2>
+
+        <p class="muted" th:if="${#lists.isEmpty(songs)}">
+            No between-at-bat songs have been uploaded yet.
+        </p>
+
+        <div class="playlist" th:unless="${#lists.isEmpty(songs)}">
+            <div class="song-item" th:each="song, stat : ${songs}">
+                <div>
+                    <span class="muted" th:text="${stat.count + '.'}">1.</span>
+                    <span class="song-name" th:text="${song}">song.mp3</span>
+                </div>
+
+                <div class="song-actions">
+                    <audio controls preload="none"
+                           th:src="@{'/uploads/songs/' + ${song}}"></audio>
+
+                    <form th:action="@{/manager/between-at-bat-songs/delete}"
+                          method="post"
+                          onsubmit="return confirm('Delete this between-at-bat song?');">
+                        <input type="hidden" name="filename" th:value="${song}">
+                        <button type="submit" class="danger">Delete</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+</body>
+</html>
