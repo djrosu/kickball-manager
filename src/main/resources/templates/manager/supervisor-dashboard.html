@@ -400,8 +400,7 @@
          * Keep them wider than a normal icon button so they are easier to hit
          * on a phone without forcing the entire button row to wrap.
          */
-        .lineup-actions form:nth-child(1) button,
-        .lineup-actions form:nth-child(2) button {
+        .lineup-actions .order-action-form button {
             min-width: 2.75rem;
             padding-left: .8rem;
             padding-right: .8rem;
@@ -514,19 +513,49 @@
                 margin-top: .55rem;
             }
 
+            /*
+             * Mobile action layout:
+             * - Run buttons occupy the first row and receive the largest tap targets.
+             * - Lineup arrows and Remove occupy the second row.
+             * - Nothing scrolls horizontally or gets clipped by the viewport.
+             */
             .lineup-actions {
-                gap: .4rem;
-                flex-wrap: nowrap;
+                display: grid;
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+                gap: .5rem;
+                width: 100%;
+                overflow: visible;
             }
 
-            .lineup-actions button {
-                padding: .52rem .64rem;
-                font-size: .86rem;
+            .lineup-actions .lineup-action-form {
+                width: 100%;
+                min-width: 0;
             }
 
-            .lineup-actions form:nth-child(1) button,
-            .lineup-actions form:nth-child(2) button {
-                min-width: 3rem;
+            .lineup-actions .lineup-action-form button {
+                width: 100%;
+                min-width: 0;
+                min-height: 48px;
+                padding: .7rem .45rem;
+                font-size: .95rem;
+            }
+
+            .lineup-actions .run-action-form {
+                grid-column: span 3;
+            }
+
+            .lineup-actions .order-action-form {
+                grid-column: span 2;
+            }
+
+            .lineup-actions .remove-action-form {
+                grid-column: span 2;
+            }
+
+            .lineup-actions .order-button {
+                min-width: 0;
+                font-size: 1.2rem;
+                font-weight: 900;
             }
 
             .game-admin-table,
@@ -597,14 +626,122 @@
                 text-align: center;
             }
         }
+    
+        /*
+         * On phones, lineup order controls move into the upper-right corner of
+         * each player card. Run controls stay in the bottom action row because
+         * they are used most frequently during live play.
+         */
+        /*
+         * The batting-order header must remain visible at every viewport width.
+         * A previous version hid it above 700px after also removing the old
+         * bottom-row arrows, which caused the controls to disappear entirely.
+         */
+        .mobile-player-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: .75rem;
+            margin-bottom: .75rem;
+        }
+
+        .mobile-order-label {
+            color: var(--muted);
+            font-size: 1rem;
+            font-weight: 800;
+        }
+
+        .mobile-order-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: .55rem;
+            margin-left: auto;
+        }
+
+        .mobile-order-actions form {
+            margin: 0;
+        }
+
+        .mobile-order-actions .order-button {
+            width: 78px;
+            min-width: 78px;
+            min-height: 48px;
+            padding: .65rem .8rem;
+            font-size: 1.25rem;
+            font-weight: 900;
+        }
+
+        .mobile-runs-label {
+            display: none;
+        }
+
+        @media (max-width: 700px) {
+            .mobile-runs-label {
+                display: block;
+                margin-top: .65rem;
+                color: var(--muted);
+                font-size: 1rem;
+                font-weight: 800;
+            }
+
+            .lineup-order,
+            .lineup-runs {
+                display: none !important;
+            }
+
+            .lineup-actions {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: .5rem;
+                width: 100%;
+                overflow: visible;
+            }
+
+            .lineup-actions .lineup-action-form {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .lineup-actions .lineup-action-form button {
+                width: 100%;
+                min-width: 0;
+                min-height: 48px;
+                padding: .68rem .4rem;
+                font-size: .92rem;
+            }
+
+            .game-state-notice.game-ready-notice {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1rem;
+                flex-wrap: wrap;
+            }
+
+            .game-ready-copy {
+                display: grid;
+                gap: .2rem;
+            }
+
+            .start-game-form {
+                margin: 0;
+            }
+
+            .start-game-form button {
+                min-height: 48px;
+                padding-inline: 1.2rem;
+            }
+        }
+
     </style>
 </head>
 <body>
-<main class="page">
+<main class="page" data-manager-view="supervisor" th:attr="data-game-week-id=${selectedGameWeekId}">
     <nav class="manager-nav">
         <strong>League Supervisor Dashboard</strong>
         <div class="manager-nav-actions">
             <a th:href="@{/manager/walk-up-songs}">Walk-Up Songs</a>
+                <a th:href="@{/manager/between-at-bat-songs}">Between At-Bat Songs</a>
             <a th:if="${hasTeamManagerView}" th:href="@{/manager/team}">My Team View</a>
             <a th:href="@{/}">Player Home</a>
         </div>
@@ -692,9 +829,9 @@
                         <section class="scoreboard-panel" th:attr="id=${'scoreboard-' + selectedGameWeekId}">
                             <span class="supervisor-section-label">Scoreboard</span>
                             <div class="scoreboard-list" th:if="${!#lists.isEmpty(scores)}">
-                                <div class="scoreboard-row" th:each="score : ${scores}">
+                                <div class="scoreboard-row" th:each="score : ${scores}" th:attr="data-score-team-id=${score.teamId}">
                                     <span class="score-team" th:text="${score.color}">Red</span>
-                                    <span class="score-value" th:text="${score.runs}">0</span>
+                                    <span class="score-value" data-score-value th:text="${score.runs}">0</span>
                                 </div>
                             </div>
                             <p th:if="${#lists.isEmpty(scores)}" class="muted">No teams have been created yet.</p>
@@ -802,16 +939,40 @@
                                         <th>Actions</th>
                                     </tr>
                                     </thead>
-                                    <tbody>
+                                    <tbody th:attr="data-team-roster-body=${team.id}">
                                     <tr th:each="entry : ${rosterEntries}"
                                         th:if="${entry.team.id == team.id}"
                                         class="lineup-row"
                                         th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? ' current-batter' : ''}"
                                         th:attr="data-roster-entry-id=${entry.id}, data-team-id=${entry.team.id}, data-player-id=${entry.player.id}">
                                         <td class="lineup-order" th:text="${entry.battingOrder}">1</td>
-                                        <td class="lineup-player-cell">
+                                        <td class="lineup-player-cell mobile-player-cell">
+                                            <!-- Mobile-only header: wide lineup arrows are right-justified. -->
+                                            <div class="mobile-player-card-header">
+                                                <span class="mobile-order-label"
+                                                      th:text="'Order: ' + ${entry.battingOrder}">Order: 1</span>
+                                                <div class="mobile-order-actions">
+                                                    <form th:action="@{/manager/supervisor/lineup/{id}/up(id=${entry.id})}"
+                                                          method="post"
+                                                          class="lineup-action-form order-action-form">
+                                                        <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
+                                                        <button type="submit" class="secondary order-button"
+                                                                aria-label="Move player up">↑</button>
+                                                    </form>
+                                                    <form th:action="@{/manager/supervisor/lineup/{id}/down(id=${entry.id})}"
+                                                          method="post"
+                                                          class="lineup-action-form order-action-form">
+                                                        <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
+                                                        <button type="submit" class="secondary order-button"
+                                                                aria-label="Move player down">↓</button>
+                                                    </form>
+                                                </div>
+                                            </div>
                                             <div class="lineup-player-name" th:text="${entry.player.nickname ?: entry.player.name}">Player</div>
                                             <div class="lineup-details" th:text="${entry.player.name}">Full Name</div>
+                                            <div class="mobile-runs-label">
+                                                Runs: <span th:text="${entry.runsScored}">0</span>
+                                            </div>
                                             <span class="current-batter-badge"
                                                   th:style="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? '' : 'display:none;'}">
                                                 At Bat
@@ -820,38 +981,43 @@
                                         <td class="lineup-runs" th:text="${entry.runsScored}">0</td>
                                         <td class="lineup-actions-cell">
                                             <div class="lineup-actions">
-                                                <form th:action="@{/manager/supervisor/lineup/{id}/up(id=${entry.id})}" method="post">
+                                                <!--
+                                                  Mobile priority order:
+                                                  1. Run controls are the most frequently used during play.
+                                                  2. Lineup arrows are secondary.
+                                                  3. Remove remains available but visually less prominent.
+                                                -->
+                                                <form th:action="@{/manager/supervisor/runs/{id}(id=${entry.id})}"
+                                                      method="post"
+                                                      class="lineup-action-form run-action-form"
+                                                      th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
                                                     <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                                    <button type="submit" class="secondary">↑</button>
+                                                    <button type="submit" class="run-action-button" th:disabled="${gameState == null}">+ Run</button>
                                                 </form>
 
-                                                <form th:action="@{/manager/supervisor/lineup/{id}/down(id=${entry.id})}" method="post">
+                                                <form th:action="@{/manager/supervisor/runs/{id}/remove(id=${entry.id})}"
+                                                      method="post"
+                                                      class="lineup-action-form run-action-form"
+                                                      th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
                                                     <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                                    <button type="submit" class="secondary">↓</button>
-                                                </form>
-
-                                                <form th:action="@{/manager/supervisor/runs/{id}(id=${entry.id})}" method="post" th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
-                                                    <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                                    <button type="submit" th:disabled="${gameState == null}">+ Run</button>
-                                                </form>
-
-                                                <form th:action="@{/manager/supervisor/runs/{id}/remove(id=${entry.id})}" method="post" th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
-                                                    <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                                    <button type="submit" class="secondary" th:disabled="${gameState == null}">- Run</button>
+                                                    <button type="submit" class="secondary run-action-button" th:disabled="${gameState == null}">- Run</button>
                                                 </form>
 
                                                 <form th:action="@{/manager/supervisor/roster/{id}/remove(id=${entry.id})}"
                                                       method="post"
-                                                      class="confirm-remove-player-form"
+                                                      class="lineup-action-form remove-action-form confirm-remove-player-form"
                                                       th:data-player-name="${entry.player.nickname ?: entry.player.name}">
                                                     <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
-                                                    <button type="submit" class="danger">Remove</button>
+                                                    <button type="submit" class="danger remove-action-button">Remove</button>
                                                 </form>
                                             </div>
                                         </td>
                                     </tr>
                                     </tbody>
                                 </table>
+                                <p class="muted" th:attr="data-empty-roster-team-id=${team.id}" hidden>
+                                    No players have been assigned to this team yet.
+                                </p>
 
                                 <form class="add-player-form" th:action="@{/manager/supervisor/teams/{teamId}/add-player(teamId=${team.id})}" method="post">
                                     <input type="hidden" name="gameWeekId" th:value="${selectedGameWeekId}">
@@ -988,6 +1154,9 @@
 </script>
 
 <!-- Cache-bust the game audio script so browsers pick up same-day game-management fixes immediately. -->
-<script th:src="@{/js/walkup-player.js(v=${#dates.createNow().time})}"></script>
+<script th:src="@{/js/walkup-player.js(v=2026071302)}"></script>
+
+<!-- Phase 1 manager AJAX: keeps run, lineup, roster, and end-at-bat actions on-page. -->
+<script th:src="@{/js/manager-ajax.js(v=2026071302)}"></script>
 </body>
 </html>

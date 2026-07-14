@@ -381,22 +381,49 @@
                 padding-left: 0;
             }
 
+            /*
+             * Mobile action layout:
+             * - Run buttons occupy the first row and receive the largest tap targets.
+             * - Lineup arrows and Remove occupy the second row.
+             * - Nothing scrolls horizontally or gets clipped by the viewport.
+             */
             .lineup-actions {
-                gap: .45rem;
-                flex-wrap: nowrap;
+                display: grid;
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+                gap: .5rem;
                 width: 100%;
-                overflow-x: auto;
+                overflow: visible;
                 padding-top: .5rem;
-                -webkit-overflow-scrolling: touch;
             }
 
-            .lineup-actions button {
-                padding: .68rem .82rem;
-                min-height: 46px;
+            .lineup-actions .lineup-action-form {
+                min-width: 0;
+                width: 100%;
+            }
+
+            .lineup-actions .lineup-action-form button {
+                width: 100%;
+                min-width: 0;
+                min-height: 48px;
+                padding: .7rem .45rem;
+                font-size: .95rem;
+            }
+
+            .lineup-actions .run-action-form {
+                grid-column: span 3;
+            }
+
+            .lineup-actions .order-action-form {
+                grid-column: span 2;
+            }
+
+            .lineup-actions .remove-action-form {
+                grid-column: span 2;
             }
 
             .lineup-actions .order-button {
-                min-width: 50px;
+                min-width: 0;
+                font-size: 1.2rem;
             }
 
             #play-current-batter-audio {
@@ -415,10 +442,117 @@
                 width: 100%;
             }
         }
+    
+        /*
+         * On phones, lineup order controls move into the upper-right corner of
+         * each player card. Run controls stay in the bottom action row because
+         * they are used most frequently during live play.
+         */
+        /*
+         * The batting-order header must remain visible at every viewport width.
+         * A previous version hid it above 700px after also removing the old
+         * bottom-row arrows, which caused the controls to disappear entirely.
+         */
+        .mobile-player-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: .75rem;
+            margin-bottom: .75rem;
+        }
+
+        .mobile-order-label {
+            color: var(--muted);
+            font-size: 1rem;
+            font-weight: 800;
+        }
+
+        .mobile-order-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: .55rem;
+            margin-left: auto;
+        }
+
+        .mobile-order-actions form {
+            margin: 0;
+        }
+
+        .mobile-order-actions .order-button {
+            width: 78px;
+            min-width: 78px;
+            min-height: 48px;
+            padding: .65rem .8rem;
+            font-size: 1.25rem;
+            font-weight: 900;
+        }
+
+        .mobile-runs-label {
+            display: none;
+        }
+
+        @media (max-width: 700px) {
+            .mobile-runs-label {
+                display: block;
+                margin-top: .65rem;
+                color: var(--muted);
+                font-size: 1rem;
+                font-weight: 800;
+            }
+
+            .lineup-order,
+            .lineup-runs {
+                display: none !important;
+            }
+
+            .lineup-actions {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: .5rem;
+                width: 100%;
+                overflow: visible;
+            }
+
+            .lineup-actions .lineup-action-form {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .lineup-actions .lineup-action-form button {
+                width: 100%;
+                min-width: 0;
+                min-height: 48px;
+                padding: .68rem .4rem;
+                font-size: .92rem;
+            }
+
+            .game-state-notice.game-ready-notice {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1rem;
+                flex-wrap: wrap;
+            }
+
+            .game-ready-copy {
+                display: grid;
+                gap: .2rem;
+            }
+
+            .start-game-form {
+                margin: 0;
+            }
+
+            .start-game-form button {
+                min-height: 48px;
+                padding-inline: 1.2rem;
+            }
+        }
+
     </style>
 </head>
 <body>
-<main class="page">
+<main class="page" data-manager-view="team" th:attr="data-game-week-id=${week.id}, data-managed-team-id=${team.id}">
     <nav class="manager-nav">
         <strong th:text="${team.color} + ' Team Manager'">Team Manager</strong>
         <div class="manager-nav-actions">
@@ -441,9 +575,21 @@
             </header>
 
             <div class="team-game-body">
-                <!-- Scoring and at-bat controls are intentionally disabled until the League Supervisor starts the game. -->
-                <div class="game-state-notice" th:if="${gameState == null}">
-                    Game has not started yet. You can build the roster and adjust the batting order, but scoring and at-bat controls are disabled.
+                <div class="game-state-notice game-ready-notice" th:if="${gameState == null}">
+                    <div class="game-ready-copy">
+                        <strong>Game Ready</strong>
+                        <span>You can continue adjusting the roster and batting order before play begins.</span>
+                    </div>
+
+                    <!--
+                      Any manager assigned to this game may start it. manager-ajax.js
+                      intercepts this form and sends the JSON request without reloading.
+                    -->
+                    <form th:action="@{/manager/team/game/start}" method="post" class="start-game-form">
+                        <input type="hidden" name="gameWeekId" th:value="${week.id}">
+                        <input type="hidden" name="teamId" th:value="${team.id}">
+                        <button type="submit">Start Game</button>
+                    </form>
                 </div>
 
                 <section class="game-info-card">
@@ -456,9 +602,9 @@
                         </tr>
                         </thead>
                         <tbody>
-                        <tr th:each="score : ${scores}">
+                        <tr th:each="score : ${scores}" th:attr="data-score-team-id=${score.teamId}">
                             <td th:text="${score.color}">Red</td>
-                            <td th:text="${score.runs}">0</td>
+                            <td data-score-value th:text="${score.runs}">0</td>
                         </tr>
                         </tbody>
                     </table>
@@ -497,7 +643,7 @@
                             </p>
                         </div>
 
-                        <p th:if="${!teamIsBatting}" class="muted">
+                        <p data-team-not-batting th:hidden="${teamIsBatting}" class="muted">
                             Your team is not currently batting. You can still edit your roster and update runs below.
                         </p>
 
@@ -528,7 +674,7 @@
                             </p>
                         </div>
 
-                        <div class="primary-game-actions" th:if="${teamIsBatting}">
+                        <div class="primary-game-actions" data-team-live-actions th:hidden="${!teamIsBatting}">
                             <form th:action="@{/manager/team/game/next-batter-info}" method="post" data-next-batter-form>
                                 <button type="submit" th:disabled="${gameState == null}">Next Batter</button>
                             </form>
@@ -556,15 +702,37 @@
                             <th>Actions</th>
                         </tr>
                         </thead>
-                        <tbody>
+                        <tbody th:attr="data-team-roster-body=${team.id}">
                         <tr th:each="entry : ${rosterEntries}"
                             class="lineup-row"
                             th:classappend="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? ' current-batter' : ''}"
                             th:attr="data-roster-entry-id=${entry.id}, data-team-id=${entry.team.id}, data-player-id=${entry.player.id}">
                             <td data-label="Order" th:text="${entry.battingOrder}">1</td>
-                            <td class="mobile-player-cell">
+                            <td class="lineup-player-cell mobile-player-cell">
+                                <!-- Mobile-only header: wide lineup arrows are right-justified. -->
+                                <div class="mobile-player-card-header">
+                                    <span class="mobile-order-label"
+                                          th:text="'Order: ' + ${entry.battingOrder}">Order: 1</span>
+                                    <div class="mobile-order-actions">
+                                        <form th:action="@{/manager/team/lineup/{id}/up(id=${entry.id})}"
+                                              method="post"
+                                              class="lineup-action-form order-action-form">
+                                            <button type="submit" class="secondary order-button"
+                                                    aria-label="Move player up">↑</button>
+                                        </form>
+                                        <form th:action="@{/manager/team/lineup/{id}/down(id=${entry.id})}"
+                                              method="post"
+                                              class="lineup-action-form order-action-form">
+                                            <button type="submit" class="secondary order-button"
+                                                    aria-label="Move player down">↓</button>
+                                        </form>
+                                    </div>
+                                </div>
                                 <div class="lineup-player-name" th:text="${entry.player.nickname ?: entry.player.name}">Player</div>
                                 <div class="lineup-details" th:text="${entry.player.name}">Full Name</div>
+                                <div class="mobile-runs-label">
+                                    Runs: <span th:text="${entry.runsScored}">0</span>
+                                </div>
                                 <span class="current-batter-badge"
                                       th:style="${gameState != null and gameState.currentBatterRosterEntry != null and gameState.currentBatterRosterEntry.id == entry.id ? 'display:inline-block' : 'display:none'}">
                                     At Bat
@@ -573,30 +741,36 @@
                             <td data-label="Runs" th:text="${entry.runsScored}">0</td>
                             <td class="mobile-actions-cell">
                                 <div class="lineup-actions">
-                                    <form th:action="@{/manager/team/lineup/{id}/up(id=${entry.id})}" method="post">
-                                        <button type="submit" class="secondary order-button">↑</button>
+                                    <!--
+                                      Mobile priority order:
+                                      1. Run controls are the most frequently used during play.
+                                      2. Lineup arrows are secondary.
+                                      3. Remove remains available but visually less prominent.
+                                    -->
+                                    <form th:action="@{/manager/team/runs/{id}(id=${entry.id})}"
+                                          method="post"
+                                          class="lineup-action-form run-action-form"
+                                          th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
+                                        <button type="submit" class="run-action-button" th:disabled="${gameState == null}">+ Run</button>
                                     </form>
-                                    <form th:action="@{/manager/team/lineup/{id}/down(id=${entry.id})}" method="post">
-                                        <button type="submit" class="secondary order-button">↓</button>
-                                    </form>
-                                    <form th:action="@{/manager/team/runs/{id}(id=${entry.id})}" method="post" th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
-                                        <button type="submit" th:disabled="${gameState == null}">+ Run</button>
-                                    </form>
-                                    <form th:action="@{/manager/team/runs/{id}/remove(id=${entry.id})}" method="post" th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
-                                        <button type="submit" class="secondary" th:disabled="${gameState == null}">- Run</button>
+                                    <form th:action="@{/manager/team/runs/{id}/remove(id=${entry.id})}"
+                                          method="post"
+                                          class="lineup-action-form run-action-form"
+                                          th:classappend="${gameState == null} ? ' is-game-action-disabled' : ''">
+                                        <button type="submit" class="secondary run-action-button" th:disabled="${gameState == null}">- Run</button>
                                     </form>
                                     <form th:action="@{/manager/team/roster/{id}/remove(id=${entry.id})}"
                                           method="post"
-                                          class="confirm-remove-player-form"
+                                          class="lineup-action-form remove-action-form confirm-remove-player-form"
                                           th:attr="data-player-name=${entry.player.nickname ?: entry.player.name}">
-                                        <button type="submit" class="danger">Remove</button>
+                                        <button type="submit" class="danger remove-action-button">Remove</button>
                                     </form>
                                 </div>
                             </td>
                         </tr>
                         </tbody>
                     </table>
-                    <p th:if="${#lists.isEmpty(rosterEntries)}" class="muted">No players have been assigned to your team yet.</p>
+                    <p th:attr="data-empty-roster-team-id=${team.id}" th:hidden="${!#lists.isEmpty(rosterEntries)}" class="muted">No players have been assigned to your team yet.</p>
 
                     <form th:action="@{/manager/team/teams/{teamId}/add-player(teamId=${team.id})}" method="post" class="add-player-form">
                         <label>Add registered player to this team</label>
@@ -628,6 +802,9 @@
      Thymeleaf 3 / Spring Security blocks direct access to java.lang.System from templates,
      so we intentionally avoid T(java.lang.System).currentTimeMillis() here.
      When this JavaScript changes again, bump the numeric version below. -->
-<script th:src="@{/js/walkup-player.js(v=2026070801)}"></script>
+<script th:src="@{/js/walkup-player.js(v=2026071302)}"></script>
+
+<!-- Phase 1 manager AJAX: keeps run, lineup, roster, and end-at-bat actions on-page. -->
+<script th:src="@{/js/manager-ajax.js(v=2026071302)}"></script>
 </body>
 </html>

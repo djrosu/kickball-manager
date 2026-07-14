@@ -144,21 +144,14 @@ public class GameManagementService {
         }
 
         Team currentTeam = state.getCurrentBattingTeam();
-        if (currentTeam != null && state.getCurrentBatterRosterEntry() != null) {
-            /*
-             * IMPORTANT GAME-FLOW DETAIL:
-             *
-             * The visible current batter represents the player who was up when
-             * the half-inning ended. When that team comes back to bat, the app
-             * should show the NEXT batter in that team's lineup, not the same
-             * player again.
-             *
-             * We therefore store the next batter for the team that is leaving
-             * the plate before switching to the next batting team. Each team
-             * keeps its own in-memory batting position for the active game.
-             */
-            rememberNextBatterForTeam(week, currentTeam, state.getCurrentBatterRosterEntry());
-        }
+
+        /*
+         * Do NOT advance the departing team's saved batter here.
+         *
+         * The player who most recently batted remains highlighted for that team
+         * while the other team is at bat. When this team returns, the manager
+         * presses Next Batter to advance exactly once and begin the new inning.
+         */
 
         int currentIndex = findTeamIndex(teams, currentTeam);
         int nextIndex = (currentIndex + 1) % teams.size();

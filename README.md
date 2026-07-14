@@ -15,6 +15,7 @@ A Spring Boot starter application for managing a weekly singles kickball league.
 - Basic roster generation
 - Basic run scoring and leaderboard
 
+
 ## Development login
 
 The seed data creates a few test users. Use any of these emails with password `password`:
