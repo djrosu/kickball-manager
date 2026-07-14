@@ -5,67 +5,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Singles, Sports and Social</title>
     <link rel="stylesheet" th:href="@{/css/app.css}">
-
     <style>
-        .mobile-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 1rem;
-            margin-bottom: 1rem;
+        .profile-section-divider {
+            border: 0;
+            border-top: 1px solid var(--border);
+            margin: 1.5rem 0;
         }
 
-        .mobile-header-title {
-            font-size: 1.25rem;
-            font-weight: 800;
-            line-height: 1.15;
+        .player-walkup-upload h3 {
+            margin-bottom: .35rem;
         }
 
-        .mobile-header-actions {
-            display: flex;
-            align-items: center;
-            gap: .5rem;
-            flex-wrap: wrap;
-            justify-content: flex-end;
+        .current-walkup-file {
+            margin: 1rem 0;
+            padding: .85rem;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: #fafafa;
         }
 
-        .mobile-header-actions a {
-            margin-right: 0;
-            white-space: nowrap;
-        }
-
-        .mobile-header-actions button {
+        .current-walkup-file p {
             margin-top: 0;
         }
 
-        @media (max-width: 600px) {
-            .mobile-header {
-                align-items: flex-start;
-            }
+        .player-walkup-preview {
+            width: 100%;
+        }
 
-            .mobile-header-title {
-                max-width: 45%;
-            }
+        .player-walkup-upload-form {
+            display: grid;
+            gap: .65rem;
+            margin-top: 1rem;
+        }
 
-            .mobile-header-actions {
-                flex-direction: column;
-                align-items: flex-end;
-            }
+        .player-walkup-upload-form input[type="file"] {
+            width: 100%;
         }
     </style>
 </head>
 <body>
 <main class="page">
-    <nav class="mobile-header">
-        <div class="mobile-header-title">Singles, Sports and Social</div>
-
-        <div class="mobile-header-actions">
+    <nav class="topbar">
+        <strong>Singles, Sports and Social</strong>
+        <span>
             <a th:if="${player.manager}" th:href="@{/manager}">Manager Dashboard</a>
-            <form th:action="@{/logout}" method="post" class="inline">
-                <button type="submit">Logout</button>
-            </form>
-        </div>
+            <form th:action="@{/logout}" method="post" class="inline"><button>Logout</button></form>
+        </span>
     </nav>
+
+    <!-- Flash feedback from profile and MP3 upload actions. -->
+    <div class="success" th:if="${message}" th:text="${message}"></div>
+    <div class="error" th:if="${error}" th:text="${error}"></div>
 
     <section class="card hero">
         <h1 th:text="'Hi, ' + (${player.nickname} ?: ${player.name}) + '!'">Hi!</h1>
@@ -109,7 +99,7 @@
             <h2>Preferred Teammate</h2>
 
             <p class="muted">
-                Optional: choose someone you would like to be teamed with for this week's game.
+                Optional: choose someone you would like to be teamed with. Mutual picks will be considered during roster creation.
             </p>
 
             <form th:action="@{/preference}" method="post">
@@ -119,7 +109,7 @@
                             th:if="${p.id != player.id}"
                             th:value="${p.id}"
                             th:selected="${preferredPlayerId != null and preferredPlayerId == p.id}"
-                            th:text="${p.nickname}">
+                            th:text="${p.name}">
                     </option>
                 </select>
                 <button type="submit">Save Preference</button>
@@ -137,15 +127,67 @@
             <form th:action="@{/profile}" method="post">
                 <label>Nickname</label>
                 <input name="nickname" th:value="${player.nickname}">
-
-                <label>Walk-up song artist</label>
+                <label>Requested walk-up song artist</label>
                 <input name="walkUpSongArtist" th:value="${player.walkUpSongArtist}">
-
-                <label>Walk-up song title</label>
+                <label>Requested walk-up song title</label>
                 <input name="walkUpSongTitle" th:value="${player.walkUpSongTitle}">
-
                 <button type="submit">Save Profile</button>
             </form>
+
+            <hr class="profile-section-divider">
+
+            <div class="player-walkup-upload">
+                <h3>Upload Walk-Up MP3</h3>
+                <p class="muted">
+                    Alternatively you can upload an MP3 you want managers to play when you are up.
+                    Uploading a file here replaces any current walk-up song.
+                </p>
+
+                <div class="current-walkup-file" th:if="${walkUpFileUploaded}">
+                    <p>
+                        <strong>Current file:</strong>
+                        <span th:text="${walkUpFilename}">walkup.mp3</span>
+                    </p>
+
+                    <!--
+                      preload="none" avoids downloading every player's audio on
+                      page load. The browser fetches it only when Play is tapped.
+                    -->
+                    <audio controls preload="none"
+                           class="player-walkup-preview"
+                           th:src="${walkUpFileUrl + '?v=' + #dates.createNow().time}">
+                        Your browser does not support MP3 playback.
+                    </audio>
+                </div>
+
+                <p class="muted" th:unless="${walkUpFileUploaded}">
+                    You have not uploaded a walk-up MP3 yet.
+                </p>
+
+                <!--
+                  The controller ignores all player ids and always saves this
+                  file for the currently authenticated player.
+                -->
+                <form th:action="@{/profile/walk-up-song/upload}"
+                      method="post"
+                      enctype="multipart/form-data"
+                      class="player-walkup-upload-form">
+                    <label for="walk-up-file">
+                        <span th:text="${walkUpFileUploaded ? 'Replace MP3' : 'Choose MP3'}">
+                            Choose MP3
+                        </span>
+                    </label>
+                    <input id="walk-up-file"
+                           name="walkUpFile"
+                           type="file"
+                           accept="audio/mpeg,.mp3"
+                           required>
+                    <button type="submit"
+                            th:text="${walkUpFileUploaded ? 'Upload Replacement' : 'Upload Walk-Up MP3'}">
+                        Upload Walk-Up MP3
+                    </button>
+                </form>
+            </div>
         </div>
 
         <div class="card">

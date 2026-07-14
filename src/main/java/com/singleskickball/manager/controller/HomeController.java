@@ -6,6 +6,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 /**
  * Player-facing home page.
@@ -22,13 +24,16 @@ public class HomeController {
     private final PlayerService playerService;
     private final GameWeekService gameWeekService;
     private final RosterService rosterService;
+    private final WalkUpSongUploadService walkUpSongUploadService;
 
     public HomeController(PlayerService playerService,
                           GameWeekService gameWeekService,
-                          RosterService rosterService) {
+                          RosterService rosterService,
+                          WalkUpSongUploadService walkUpSongUploadService) {
         this.playerService = playerService;
         this.gameWeekService = gameWeekService;
         this.rosterService = rosterService;
+        this.walkUpSongUploadService = walkUpSongUploadService;
     }
 
     @GetMapping("/")
@@ -44,6 +49,26 @@ public class HomeController {
         // These values let the page show what the player already selected.
         model.addAttribute("currentAvailability", gameWeekService.getAvailabilityStatus(week, player).orElse(null));
         model.addAttribute("preferredPlayerId", gameWeekService.getPreferredPlayerId(week, player).orElse(null));
+
+        /*
+         * The browser path is already stored on the Player row. Exposing these
+         * convenience values keeps the Thymeleaf template simple and lets the
+         * player preview the exact MP3 that will be used during a game.
+         */
+        String walkUpFilePath = player.getWalkUpSongFilePath();
+        boolean walkUpFileUploaded =
+                walkUpFilePath != null && !walkUpFilePath.isBlank();
+        model.addAttribute("walkUpFileUploaded", walkUpFileUploaded);
+        model.addAttribute(
+                "walkUpFileUrl",
+                walkUpFileUploaded
+                        ? walkUpSongUploadService.toPublicBrowserUrl(walkUpFilePath)
+                        : null);
+        model.addAttribute(
+                "walkUpFilename",
+                walkUpFileUploaded
+                        ? walkUpSongUploadService.filenameForDisplay(walkUpFilePath)
+                        : null);
 
         return "home";
     }
@@ -71,6 +96,32 @@ public class HomeController {
                                 Authentication authentication) {
         Player player = playerService.getCurrentPlayer(authentication);
         playerService.updateProfile(player, nickname, walkUpSongArtist, walkUpSongTitle);
+        return "redirect:/";
+    }
+
+    /**
+     * Allows a player to upload or replace only their own walk-up MP3.
+     *
+     * <p>No player id is accepted from the browser. The destination player is
+     * always resolved from the authenticated session, preventing one player
+     * from replacing another player's audio by changing a form value.</p>
+     */
+    @PostMapping("/profile/walk-up-song/upload")
+    public String uploadOwnWalkUpSong(
+            @RequestParam("walkUpFile") MultipartFile walkUpFile,
+            Authentication authentication,
+            RedirectAttributes redirectAttributes) {
+        Player player = playerService.getCurrentPlayer(authentication);
+
+        try {
+            walkUpSongUploadService.uploadWalkUpSong(player.getId(), walkUpFile);
+            redirectAttributes.addFlashAttribute(
+                    "message",
+                    "Your walk-up MP3 was uploaded successfully.");
+        } catch (RuntimeException ex) {
+            redirectAttributes.addFlashAttribute("error", ex.getMessage());
+        }
+
         return "redirect:/";
     }
 }
