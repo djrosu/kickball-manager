@@ -195,6 +195,41 @@ public class ManagerLiveUpdateService {
     }
 
     /**
+     * Continues between-at-bat music only if the requesting browser is still
+     * the device assigned to play it.
+     *
+     * <p>The active-device check prevents a late HTMLAudioElement "ended" event
+     * from starting another song after Next Batter has already stopped the
+     * break-music session.</p>
+     *
+     * @return {@code true} when the next song command was sent
+     */
+    public boolean continueBetweenAtBatSong(Long gameWeekId,
+                                            String requestingDeviceId,
+                                            String songUrl) {
+        String activeDeviceId =
+                betweenAtBatAudioDeviceByGameWeek.get(gameWeekId);
+
+        if (activeDeviceId == null
+                || requestingDeviceId == null
+                || !activeDeviceId.equals(requestingDeviceId)
+                || songUrl == null
+                || songUrl.isBlank()) {
+            return false;
+        }
+
+        sendNamedEventToDevice(
+                gameWeekId,
+                activeDeviceId,
+                "between-at-bat-audio",
+                Map.of(
+                        "targetDeviceId", activeDeviceId,
+                        "audioUrl", songUrl));
+
+        return true;
+    }
+
+    /**
      * Stops any between-at-bat music currently playing for this game.
      *
      * <p>This is called before Next Batter advances. The stop command is routed

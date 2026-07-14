@@ -463,8 +463,9 @@
 
         .mobile-order-label {
             color: var(--muted);
-            font-size: 1rem;
-            font-weight: 800;
+            font-size: 1.45rem;
+            line-height: 1;
+            font-weight: 900;
         }
 
         .mobile-order-actions {
@@ -675,8 +676,18 @@
                         </div>
 
                         <div class="primary-game-actions" data-team-live-actions th:hidden="${!teamIsBatting}">
-                            <form th:action="@{/manager/team/game/next-batter-info}" method="post" data-next-batter-form>
-                                <button type="submit" th:disabled="${gameState == null}">Next Batter</button>
+                            <form th:action="@{/manager/team/game/previous-batter-info}"
+                                  method="post"
+                                  data-previous-batter-form>
+                                <button type="submit" class="secondary"
+                                        th:disabled="${gameState == null}">Previous Batter</button>
+                            </form>
+
+                            <form th:action="@{/manager/team/game/next-batter-info}"
+                                  method="post"
+                                  data-next-batter-form>
+                                <button type="submit"
+                                        th:disabled="${gameState == null}">Next Batter</button>
                             </form>
 
                             <form th:action="@{/manager/team/game/end-at-bat}" method="post"
@@ -712,7 +723,7 @@
                                 <!-- Mobile-only header: wide lineup arrows are right-justified. -->
                                 <div class="mobile-player-card-header">
                                     <span class="mobile-order-label"
-                                          th:text="'Order: ' + ${entry.battingOrder}">Order: 1</span>
+                                          th:text="'#' + ${entry.battingOrder}">#1</span>
                                     <div class="mobile-order-actions">
                                         <form th:action="@{/manager/team/lineup/{id}/up(id=${entry.id})}"
                                               method="post"
@@ -802,9 +813,9 @@
      Thymeleaf 3 / Spring Security blocks direct access to java.lang.System from templates,
      so we intentionally avoid T(java.lang.System).currentTimeMillis() here.
      When this JavaScript changes again, bump the numeric version below. -->
-<script th:src="@{/js/walkup-player.js(v=2026071302)}"></script>
+<script th:src="@{/js/walkup-player.js(v=2026071401)}"></script>
 
 <!-- Phase 1 manager AJAX: keeps run, lineup, roster, and end-at-bat actions on-page. -->
-<script th:src="@{/js/manager-ajax.js(v=2026071302)}"></script>
+<script th:src="@{/js/manager-ajax.js(v=2026071401)}"></script>
 </body>
 </html>

@@ -129,6 +129,39 @@ public class GameManagementService {
     }
 
     /**
+     * Moves to the previous batter on the current batting team's lineup.
+     *
+     * <p>This is the exact inverse of {@link #nextBatter(GameWeek)} and wraps
+     * from the first player back to the last player. The team's in-memory
+     * batting position is updated so later at-bat switches preserve the
+     * corrected lineup position.</p>
+     */
+    @Transactional
+    public GameState previousBatter(GameWeek week) {
+        GameState state = requireGameState(week);
+        Team battingTeam = state.getCurrentBattingTeam();
+        if (battingTeam == null) {
+            throw new IllegalStateException("No batting team is selected.");
+        }
+
+        List<TeamRosterEntry> lineup =
+                rosterEntryRepository.findByTeamOrderByBattingOrderAsc(battingTeam);
+        if (lineup.isEmpty()) {
+            throw new IllegalStateException("Current batting team has no players.");
+        }
+
+        TeamRosterEntry current =
+                bestCurrentBatterForNextAdvance(week, battingTeam, state, lineup);
+        int currentIndex = findRosterEntryIndex(lineup, current);
+        int previousIndex = Math.floorMod(currentIndex - 1, lineup.size());
+        TeamRosterEntry previousBatter = lineup.get(previousIndex);
+
+        rememberCurrentBatter(week, battingTeam, previousBatter);
+        state.setCurrentBatterRosterEntry(previousBatter);
+        return gameStateRepository.save(state);
+    }
+
+    /**
      * Ends the current team's at-bat and switches to the next team.
      *
      * With two teams this alternates Red/Yellow. If more teams are added later,
