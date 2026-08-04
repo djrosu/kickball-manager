@@ -743,6 +743,7 @@
         <div class="manager-nav-actions">
             <a th:href="@{/manager/walk-up-songs}">Walk-Up Songs</a>
                 <a th:href="@{/manager/between-at-bat-songs}">Between At-Bat Songs</a>
+                <a th:href="@{/manager/random-intros}">Random Intros</a>
             <a th:if="${hasTeamManagerView}" th:href="@{/manager/team}">My Team View</a>
             <a th:href="@{/}">Player Home</a>
         </div>
@@ -1168,7 +1169,7 @@
 </script>
 
 <!-- Cache-bust the game audio script so browsers pick up same-day game-management fixes immediately. -->
-<script th:src="@{/js/walkup-player.js(v=2026071401)}"></script>
+<script th:src="@{/js/walkup-player.js(v=2026071402)}"></script>
 
 <!-- Phase 1 manager AJAX: keeps run, lineup, roster, and end-at-bat actions on-page. -->
 <script th:src="@{/js/manager-ajax.js(v=2026071401)}"></script>

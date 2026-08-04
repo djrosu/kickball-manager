@@ -51,6 +51,13 @@ public class WalkUpSongInfo {
     private String audioUrl;
     private boolean playable;
 
+    /**
+     * Browser URL to a randomly selected League Supervisor-managed intro clip.
+     * This plays before the player's own intro.
+     */
+    private String sharedIntroAudioUrl;
+    private boolean sharedIntroPlayable;
+
     /** Browser URL to the player's intro MP3, if one exists. */
     private String introAudioUrl;
     private boolean introPlayable;
@@ -84,6 +91,16 @@ public class WalkUpSongInfo {
 
     public boolean isPlayable() { return playable; }
     public void setPlayable(boolean playable) { this.playable = playable; }
+
+    public String getSharedIntroAudioUrl() { return sharedIntroAudioUrl; }
+    public void setSharedIntroAudioUrl(String sharedIntroAudioUrl) {
+        this.sharedIntroAudioUrl = sharedIntroAudioUrl;
+    }
+
+    public boolean isSharedIntroPlayable() { return sharedIntroPlayable; }
+    public void setSharedIntroPlayable(boolean sharedIntroPlayable) {
+        this.sharedIntroPlayable = sharedIntroPlayable;
+    }
 
     public String getIntroAudioUrl() { return introAudioUrl; }
     public void setIntroAudioUrl(String introAudioUrl) { this.introAudioUrl = introAudioUrl; }
