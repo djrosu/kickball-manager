@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Random Intros | Singles, Sports and Social</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <style>
+        .intro-grid {
+            display: grid;
+            gap: .85rem;
+        }
+
+        .intro-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 1rem;
+            align-items: center;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: .9rem;
+            background: #fff;
+        }
+
+        .intro-name {
+            font-weight: 850;
+            overflow-wrap: anywhere;
+        }
+
+        .intro-actions {
+            display: grid;
+            gap: .65rem;
+            justify-items: end;
+        }
+
+        .eligibility-options {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .eligibility-options label {
+            display: inline-flex;
+            align-items: center;
+            gap: .4rem;
+            margin: 0;
+        }
+
+        .eligibility-form,
+        .upload-form {
+            display: flex;
+            align-items: center;
+            gap: .75rem;
+            flex-wrap: wrap;
+        }
+
+        .upload-form {
+            align-items: end;
+        }
+
+        .upload-form .file-field {
+            flex: 1 1 280px;
+        }
+
+        .intro-preview {
+            width: min(320px, 100%);
+        }
+
+        @media (max-width: 700px) {
+            .intro-row {
+                grid-template-columns: 1fr;
+            }
+
+            .intro-actions {
+                justify-items: stretch;
+            }
+
+            .eligibility-form {
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+<main class="page">
+    <nav class="topbar">
+        <strong>Random Intro Collection</strong>
+        <span>
+            <a th:href="@{/manager/supervisor}">Supervisor Dashboard</a>
+            <a th:href="@{/manager/walk-up-songs}">Player Audio</a>
+        </span>
+    </nav>
+
+    <div class="success" th:if="${message}" th:text="${message}"></div>
+    <div class="error" th:if="${error}" th:text="${error}"></div>
+
+    <section class="card hero">
+        <h1>Manage Random Intros</h1>
+        <p class="muted">
+            At each batter change, one eligible clip is selected randomly and
+            played before the player's specific intro and walk-up song.
+        </p>
+        <p class="muted">
+            Select both Male and Female for a unisex clip. At least one option
+            must be selected.
+        </p>
+    </section>
+
+    <section class="card">
+        <h2>Upload Intro Clip</h2>
+        <form class="upload-form"
+              th:action="@{/manager/random-intros/upload}"
+              method="post"
+              enctype="multipart/form-data">
+            <label class="file-field">
+                MP3 file
+                <input type="file"
+                       name="file"
+                       accept="audio/mpeg,.mp3"
+                       required>
+            </label>
+
+            <div class="eligibility-options">
+                <label>
+                    <input type="checkbox" name="male" value="true">
+                    Male
+                </label>
+                <label>
+                    <input type="checkbox" name="female" value="true">
+                    Female
+                </label>
+            </div>
+
+            <button type="submit">Upload Intro</button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Intro Collection</h2>
+
+        <p class="muted" th:if="${#lists.isEmpty(intros)}">
+            No random intro clips have been uploaded.
+        </p>
+
+        <div class="intro-grid" th:unless="${#lists.isEmpty(intros)}">
+            <article class="intro-row" th:each="intro : ${intros}">
+                <div>
+                    <div class="intro-name" th:text="${intro.filename}">
+                        intro.mp3
+                    </div>
+                    <p class="muted"
+                       th:text="${intro.unisex ? 'Unisex' : (intro.male ? 'Male' : 'Female')}">
+                        Unisex
+                    </p>
+                    <audio class="intro-preview"
+                           controls
+                           preload="none"
+                           th:src="${intro.url + '?v=' + #dates.createNow().time}">
+                        Your browser does not support MP3 playback.
+                    </audio>
+                </div>
+
+                <div class="intro-actions">
+                    <form class="eligibility-form"
+                          th:action="@{/manager/random-intros/eligibility}"
+                          method="post">
+                        <input type="hidden"
+                               name="filename"
+                               th:value="${intro.filename}">
+
+                        <div class="eligibility-options">
+                            <label>
+                                <input type="checkbox"
+                                       name="male"
+                                       value="true"
+                                       th:checked="${intro.male}">
+                                Male
+                            </label>
+                            <label>
+                                <input type="checkbox"
+                                       name="female"
+                                       value="true"
+                                       th:checked="${intro.female}">
+                                Female
+                            </label>
+                        </div>
+
+                        <button type="submit" class="secondary">
+                            Save Eligibility
+                        </button>
+                    </form>
+
+                    <form th:action="@{/manager/random-intros/delete}"
+                          method="post"
+                          onsubmit="return confirm('Delete this random intro clip?');">
+                        <input type="hidden"
+                               name="filename"
+                               th:value="${intro.filename}">
+                        <button type="submit" class="danger">Delete</button>
+                    </form>
+                </div>
+            </article>
+        </div>
+    </section>
+</main>
+</body>
+</html>

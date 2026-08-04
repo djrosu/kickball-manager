@@ -117,12 +117,22 @@
     async function playSequence(info, statusElement) {
         stop();
 
-        const introUrl = info && info.introPlayable ? info.introAudioUrl : null;
-        const songUrl = info && info.playable ? info.audioUrl : null;
+        const sharedIntroUrl =
+            info && info.sharedIntroPlayable
+                ? info.sharedIntroAudioUrl
+                : null;
+        const introUrl =
+            info && info.introPlayable
+                ? info.introAudioUrl
+                : null;
+        const songUrl =
+            info && info.playable
+                ? info.audioUrl
+                : null;
         const playerName = info && info.playerName ? info.playerName : 'current batter';
         const label = songLabel(info);
 
-        if (!introUrl && !songUrl) {
+        if (!sharedIntroUrl && !introUrl && !songUrl) {
             if (statusElement) {
                 statusElement.textContent = 'No intro or walk-up song uploaded for ' + playerName + '.';
             }
@@ -134,8 +144,13 @@
         }
 
         try {
-            // Intro always plays first when present. When it finishes, the
-            // walk-up song starts automatically.
+            // Three-stage sequence:
+            // 1. random shared intro chosen for the player's gender;
+            // 2. existing player-specific intro;
+            // 3. player's walk-up song.
+            if (sharedIntroUrl) {
+                await playUrl(sharedIntroUrl);
+            }
             if (introUrl) {
                 await playUrl(introUrl);
             }
@@ -253,19 +268,33 @@
                 const isCurrentBatterButton =
                     button.id === 'play-current-batter-audio';
 
-                if (isCurrentBatterButton
-                        && window.ManagerAjax
-                        && window.ManagerAjax.hasDedicatedAudioTarget()) {
+                if (isCurrentBatterButton && window.ManagerAjax) {
                     if (statusElement) {
                         statusElement.textContent =
-                            'Sending current batter audio to the selected audio device...';
+                            window.ManagerAjax.hasDedicatedAudioTarget()
+                                ? 'Sending current batter audio to the selected audio device...'
+                                : 'Selecting intro and preparing current batter audio...';
                     }
 
                     try {
-                        await window.ManagerAjax.requestRoutedCurrentBatterAudio();
+                        const state =
+                            await window.ManagerAjax.requestRoutedCurrentBatterAudio();
+
+                        /*
+                         * With a dedicated target, the server already sent the
+                         * enriched audio command through SSE. In default mode,
+                         * this browser plays the same freshly selected sequence.
+                         */
+                        if (!window.ManagerAjax.hasDedicatedAudioTarget()
+                                && state
+                                && state.currentBatter) {
+                            await playSequence(
+                                state.currentBatter,
+                                statusElement);
+                        }
                     } catch (error) {
                         const message =
-                            error.message || 'Unable to route current batter audio.';
+                            error.message || 'Unable to play current batter audio.';
                         if (statusElement) {
                             statusElement.textContent = message;
                         }

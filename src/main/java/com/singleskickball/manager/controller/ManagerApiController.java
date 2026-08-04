@@ -17,6 +17,7 @@ import com.singleskickball.manager.service.LineupService;
 import com.singleskickball.manager.service.ManagerAccessService;
 import com.singleskickball.manager.service.ManagerDashboardStateService;
 import com.singleskickball.manager.service.ManagerLiveUpdateService;
+import com.singleskickball.manager.service.RandomIntroService;
 import com.singleskickball.manager.service.RosterService;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
@@ -48,6 +49,7 @@ public class ManagerApiController {
     private final ManagerDashboardStateService dashboardStateService;
     private final ManagerLiveUpdateService liveUpdateService;
     private final BetweenAtBatSongService betweenAtBatSongService;
+    private final RandomIntroService randomIntroService;
 
     public ManagerApiController(GameWeekService gameWeekService,
                                 RosterService rosterService,
@@ -57,7 +59,8 @@ public class ManagerApiController {
                                 TeamRosterEntryRepository rosterEntryRepository,
                                 ManagerDashboardStateService dashboardStateService,
                                 ManagerLiveUpdateService liveUpdateService,
-                                BetweenAtBatSongService betweenAtBatSongService) {
+                                BetweenAtBatSongService betweenAtBatSongService,
+                                RandomIntroService randomIntroService) {
         this.gameWeekService = gameWeekService;
         this.rosterService = rosterService;
         this.lineupService = lineupService;
@@ -67,6 +70,7 @@ public class ManagerApiController {
         this.dashboardStateService = dashboardStateService;
         this.liveUpdateService = liveUpdateService;
         this.betweenAtBatSongService = betweenAtBatSongService;
+        this.randomIntroService = randomIntroService;
     }
 
     /** Adds one run to a weekly roster entry. */
@@ -152,6 +156,11 @@ public class ManagerApiController {
         }
 
         gameManagementService.startGame(week);
+
+        // Snapshot and shuffle the intro collection for this game. Every
+        // eligible clip is used before that deck repeats.
+        randomIntroService.prepareGame(week.getId());
+
         return buildPublishAndReturn(week, "Game started.");
     }
 
@@ -167,8 +176,16 @@ public class ManagerApiController {
         liveUpdateService.stopBetweenAtBatAudio(week.getId());
 
         gameManagementService.nextBatter(week);
-        ManagerDashboardState state = buildPublishAndReturn(week, "Advanced to next batter.");
-        liveUpdateService.publishAudioCommandIfTargeted(week.getId(), state.getCurrentBatter());
+        ManagerDashboardState state =
+                buildPublishAndReturn(week, "Advanced to next batter.");
+
+        // Random selection happens only for an actual playback action. Routine
+        // score/lineup live updates never consume or change the intro choice.
+        randomIntroService.applyNextIntro(week.getId(), state.getCurrentBatter());
+
+        liveUpdateService.publishAudioCommandIfTargeted(
+                week.getId(),
+                state.getCurrentBatter());
         return state;
     }
 
@@ -188,6 +205,8 @@ public class ManagerApiController {
         gameManagementService.previousBatter(week);
         ManagerDashboardState state =
                 buildPublishAndReturn(week, "Moved to previous batter.");
+
+        randomIntroService.applyNextIntro(week.getId(), state.getCurrentBatter());
 
         liveUpdateService.publishAudioCommandIfTargeted(
                 week.getId(),
@@ -267,8 +286,11 @@ public class ManagerApiController {
             throw new IllegalStateException("There is no current batter.");
         }
 
+        randomIntroService.applyNextIntro(week.getId(), state.getCurrentBatter());
+
         liveUpdateService.publishAudioCommandIfTargeted(
-                week.getId(), state.getCurrentBatter());
+                week.getId(),
+                state.getCurrentBatter());
 
         return state;
     }

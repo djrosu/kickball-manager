@@ -127,9 +127,9 @@
             <form th:action="@{/profile}" method="post">
                 <label>Nickname</label>
                 <input name="nickname" th:value="${player.nickname}">
-                <label>Requested walk-up song artist</label>
+                <label>Walk-up song artist</label>
                 <input name="walkUpSongArtist" th:value="${player.walkUpSongArtist}">
-                <label>Requested walk-up song title</label>
+                <label>Walk-up song title</label>
                 <input name="walkUpSongTitle" th:value="${player.walkUpSongTitle}">
                 <button type="submit">Save Profile</button>
             </form>
@@ -137,10 +137,10 @@
             <hr class="profile-section-divider">
 
             <div class="player-walkup-upload">
-                <h3>Upload Walk-Up MP3</h3>
+                <h3>Your Walk-Up MP3</h3>
                 <p class="muted">
-                    Alternatively you can upload an MP3 you want managers to play when you are up.
-                    Uploading a file here replaces any current walk-up song.
+                    Upload the MP3 clip you want managers to play when you are up.
+                    Uploading another file replaces your current walk-up MP3.
                 </p>
 
                 <div class="current-walkup-file" th:if="${walkUpFileUploaded}">
