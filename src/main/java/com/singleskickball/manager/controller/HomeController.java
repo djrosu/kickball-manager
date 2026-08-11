@@ -25,15 +25,18 @@ public class HomeController {
     private final GameWeekService gameWeekService;
     private final RosterService rosterService;
     private final WalkUpSongUploadService walkUpSongUploadService;
+    private final HomePageAnnouncementService homePageAnnouncementService;
 
     public HomeController(PlayerService playerService,
                           GameWeekService gameWeekService,
                           RosterService rosterService,
-                          WalkUpSongUploadService walkUpSongUploadService) {
+                          WalkUpSongUploadService walkUpSongUploadService,
+                          HomePageAnnouncementService homePageAnnouncementService) {
         this.playerService = playerService;
         this.gameWeekService = gameWeekService;
         this.rosterService = rosterService;
         this.walkUpSongUploadService = walkUpSongUploadService;
+        this.homePageAnnouncementService = homePageAnnouncementService;
     }
 
     @GetMapping("/")
@@ -45,6 +48,14 @@ public class HomeController {
         model.addAttribute("week", week);
         model.addAttribute("players", playerService.findActivePlayers());
         model.addAttribute("leaders", rosterService.getTopRunLeaders());
+
+        /*
+         * Resolve the currently scheduled homepage announcement on every page
+         * request. No restart or manual cache clearing is needed when the
+         * database row changes or the scheduled dates roll over.
+         */
+        homePageAnnouncementService.getActiveBanner()
+                .ifPresent(banner -> model.addAttribute("announcement", banner));
 
         // These values let the page show what the player already selected.
         model.addAttribute("currentAvailability", gameWeekService.getAvailabilityStatus(week, player).orElse(null));
