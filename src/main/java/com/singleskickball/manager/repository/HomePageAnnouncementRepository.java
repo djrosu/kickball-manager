@@ -1,7 +1,6 @@
 package com.singleskickball.manager.repository;
 
 import com.singleskickball.manager.model.HomePageAnnouncement;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,10 +15,9 @@ public interface HomePageAnnouncementRepository
         extends JpaRepository<HomePageAnnouncement, Long> {
 
     /**
-     * Returns announcements active on the supplied date, newest schedule first.
-     *
-     * <p>Pageable is used so callers can efficiently request only the single
-     * banner that should currently be displayed.</p>
+     * Returns every announcement active on the supplied date, newest schedule
+     * first. The homepage renders the result in this same order so the
+     * announcement with the most recent start date appears at the top.
      */
     @Query("""
             select announcement
@@ -30,6 +28,5 @@ public interface HomePageAnnouncementRepository
              order by announcement.startDate desc, announcement.id desc
             """)
     List<HomePageAnnouncement> findActiveAnnouncements(
-            @Param("today") LocalDate today,
-            Pageable pageable);
+            @Param("today") LocalDate today);
 }

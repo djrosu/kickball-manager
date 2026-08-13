@@ -54,8 +54,13 @@ public class HomeController {
          * request. No restart or manual cache clearing is needed when the
          * database row changes or the scheduled dates roll over.
          */
-        homePageAnnouncementService.getActiveBanner()
-                .ifPresent(banner -> model.addAttribute("announcement", banner));
+        /*
+         * More than one announcement may qualify for today's date. The service
+         * returns them newest-start-date first for direct rendering by Thymeleaf.
+         */
+        model.addAttribute(
+                "announcements",
+                homePageAnnouncementService.getActiveBanners());
 
         // These values let the page show what the player already selected.
         model.addAttribute("currentAvailability", gameWeekService.getAvailabilityStatus(week, player).orElse(null));

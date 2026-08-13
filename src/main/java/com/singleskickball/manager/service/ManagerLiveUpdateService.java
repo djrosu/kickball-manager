@@ -49,6 +49,13 @@ public class ManagerLiveUpdateService {
      */
     private static final long HEARTBEAT_INTERVAL_SECONDS = 25L;
 
+    /**
+     * Targeted audio is time-sensitive, but a mobile EventSource can disappear
+     * briefly while reconnecting. Retain only the newest command for a short
+     * grace period so a selected audio device does not miss it.
+     */
+    private static final long PENDING_AUDIO_COMMAND_TTL_SECONDS = 12L;
+
     /** Current optional audio owner for each active game. This is intentionally
      * in memory: selecting an audio device is temporary game-session state. */
     private final Map<Long, AudioTargetState> audioTargetsByGameWeek = new ConcurrentHashMap<>();
@@ -59,6 +66,13 @@ public class ManagerLiveUpdateService {
      * manager initiated the next-batter command.
      */
     private final Map<Long, String> betweenAtBatAudioDeviceByGameWeek =
+            new ConcurrentHashMap<>();
+
+    /**
+     * Latest not-yet-delivered targeted audio event for each game/device pair.
+     * There is at most one pending event per device and it expires quickly.
+     */
+    private final Map<DeviceKey, PendingDeviceEvent> pendingDeviceEvents =
             new ConcurrentHashMap<>();
 
     /** One subscriber list per game prevents cross-game broadcasts. */
@@ -127,7 +141,30 @@ public class ManagerLiveUpdateService {
 
         if (!connected) {
             removeSubscriber(subscriber, false);
+            return emitter;
         }
+
+        /*
+         * Re-synchronize shared-audio ownership on every new EventSource
+         * connection. A sleeping browser may have missed an audio-target-state
+         * broadcast while its network I/O was suspended.
+         */
+        boolean targetStateSent = trySendEvent(
+                subscriber,
+                SseEmitter.event()
+                        .name("audio-target-state")
+                        .data(getAudioTargetState(gameWeekId)));
+
+        if (!targetStateSent) {
+            removeSubscriber(subscriber, false);
+            return emitter;
+        }
+
+        /*
+         * If this selected audio device missed a command during a short
+         * EventSource reconnect, deliver the newest still-valid one now.
+         */
+        flushPendingDeviceEvent(subscriber);
 
         return emitter;
     }
@@ -185,7 +222,7 @@ public class ManagerLiveUpdateService {
 
         betweenAtBatAudioDeviceByGameWeek.put(gameWeekId, destinationDeviceId);
 
-        sendNamedEventToDevice(
+        sendOrQueueNamedEventToDevice(
                 gameWeekId,
                 destinationDeviceId,
                 "between-at-bat-audio",
@@ -218,7 +255,7 @@ public class ManagerLiveUpdateService {
             return false;
         }
 
-        sendNamedEventToDevice(
+        sendOrQueueNamedEventToDevice(
                 gameWeekId,
                 activeDeviceId,
                 "between-at-bat-audio",
@@ -243,7 +280,7 @@ public class ManagerLiveUpdateService {
             return;
         }
 
-        sendNamedEventToDevice(
+        sendOrQueueNamedEventToDevice(
                 gameWeekId,
                 destinationDeviceId,
                 "audio-stop",
@@ -264,7 +301,7 @@ public class ManagerLiveUpdateService {
             return;
         }
 
-        sendNamedEventToDevice(
+        sendOrQueueNamedEventToDevice(
                 gameWeekId,
                 target.getDeviceId(),
                 "audio-command",
@@ -274,33 +311,117 @@ public class ManagerLiveUpdateService {
     }
 
     /**
-     * Sends one named event only to subscribers belonging to a specific device.
+     * Sends a named event to one device, or remembers it briefly if that
+     * device's EventSource is between connections.
      *
-     * <p>A browser may briefly have more than one EventSource connection while
-     * reconnecting. Sending to every matching subscription is intentional; dead
-     * subscriptions are removed immediately after a failed write.</p>
+     * <p>A newer targeted event replaces an older pending one. This prevents
+     * stale audio from replaying later while still covering short mobile/HTTP2
+     * reconnect gaps.</p>
      */
-    private void sendNamedEventToDevice(Long gameWeekId,
-                                        String deviceId,
-                                        String eventName,
-                                        Object data) {
+    private void sendOrQueueNamedEventToDevice(Long gameWeekId,
+                                               String deviceId,
+                                               String eventName,
+                                               Object data) {
+        if (gameWeekId == null || deviceId == null || deviceId.isBlank()) {
+            return;
+        }
+
+        DeviceKey key = new DeviceKey(gameWeekId, deviceId);
+        boolean delivered =
+                sendNamedEventToDevice(gameWeekId, deviceId, eventName, data);
+
+        if (delivered) {
+            pendingDeviceEvents.remove(key);
+            return;
+        }
+
+        pendingDeviceEvents.put(
+                key,
+                new PendingDeviceEvent(
+                        eventName,
+                        data,
+                        Instant.now().plusSeconds(
+                                PENDING_AUDIO_COMMAND_TTL_SECONDS)));
+
+        LOGGER.debug(
+                "Queued targeted manager audio event '{}' for game {} device {} while SSE reconnects.",
+                eventName,
+                gameWeekId,
+                deviceId);
+    }
+
+    /**
+     * Sends one named SSE event to every currently connected subscription for
+     * one device.
+     *
+     * @return true when at least one live subscription accepted the event
+     */
+    private boolean sendNamedEventToDevice(Long gameWeekId,
+                                           String deviceId,
+                                           String eventName,
+                                           Object data) {
         CopyOnWriteArrayList<Subscriber> subscribers =
                 subscribersByGameWeek.get(gameWeekId);
 
         if (subscribers == null || deviceId == null) {
-            return;
+            return false;
         }
+
+        boolean delivered = false;
 
         for (Subscriber subscriber : subscribers) {
             if (!deviceId.equals(subscriber.deviceId)) {
                 continue;
             }
 
-            if (!trySendEvent(
+            if (trySendEvent(
                     subscriber,
                     SseEmitter.event().name(eventName).data(data))) {
+                delivered = true;
+            } else {
                 removeSubscriber(subscriber, false);
             }
+        }
+
+        return delivered;
+    }
+
+    /**
+     * Delivers a still-valid queued targeted event after this browser's SSE
+     * connection has been re-established.
+     */
+    private void flushPendingDeviceEvent(Subscriber subscriber) {
+        if (subscriber == null
+                || subscriber.deviceId == null
+                || subscriber.deviceId.isBlank()) {
+            return;
+        }
+
+        DeviceKey key =
+                new DeviceKey(subscriber.gameWeekId, subscriber.deviceId);
+        PendingDeviceEvent pending = pendingDeviceEvents.get(key);
+
+        if (pending == null) {
+            return;
+        }
+
+        if (pending.expiresAt().isBefore(Instant.now())) {
+            pendingDeviceEvents.remove(key, pending);
+            return;
+        }
+
+        if (trySendEvent(
+                subscriber,
+                SseEmitter.event()
+                        .name(pending.eventName())
+                        .data(pending.data()))) {
+            pendingDeviceEvents.remove(key, pending);
+
+            LOGGER.debug(
+                    "Delivered queued manager audio event '{}' after SSE reconnect for game {} device {}.",
+                    pending.eventName(),
+                    subscriber.gameWeekId,
+                    subscriber.deviceId);
         }
     }
 
@@ -466,6 +587,17 @@ public class ManagerLiveUpdateService {
 
         subscribersByGameWeek.clear();
         audioTargetsByGameWeek.clear();
+        pendingDeviceEvents.clear();
+    }
+
+    /** Composite key for a game-specific browser device. */
+    private record DeviceKey(Long gameWeekId, String deviceId) {
+    }
+
+    /** One short-lived targeted event waiting for an SSE reconnect. */
+    private record PendingDeviceEvent(String eventName,
+                                      Object data,
+                                      Instant expiresAt) {
     }
 
     /**

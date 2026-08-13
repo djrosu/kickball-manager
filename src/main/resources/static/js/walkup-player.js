@@ -13,74 +13,226 @@
 (function (window, document) {
     'use strict';
 
-    let currentAudio = null;
-
     /*
-     * Audio ownership is managed separately by manager-ajax.js. This module
-     * touches the browser media element only when a real intro or walk-up file
-     * is ready to play. In particular, claiming audio ownership never attempts
-     * to play an empty, silent, or synthetic media URL.
+     * Use one persistent HTMLAudioElement for all game audio.
+     *
+     * Reusing the same element improves mobile-browser reliability after the
+     * manager explicitly enables this device as the shared audio target.
+     * A session id prevents stale asynchronous sequences from starting another
+     * clip after newer game audio has already begun.
      */
+    const sharedAudioElement = new Audio();
+    sharedAudioElement.preload = 'auto';
+
+    let audioSessionId = 0;
+    let cancelActivePlayback = null;
 
     function hasText(value) {
         return value !== null && value !== undefined && String(value).trim() !== '';
     }
 
+    /**
+     * Stops the current media request AND resolves the Promise currently waiting
+     * for it. The latter is critical: pausing an Audio object alone does not
+     * cancel an async intro -> song sequence.
+     */
     function stop() {
-        if (currentAudio) {
-            currentAudio.pause();
-            currentAudio.currentTime = 0;
-            currentAudio = null;
+        audioSessionId += 1;
+
+        if (cancelActivePlayback) {
+            cancelActivePlayback();
+            cancelActivePlayback = null;
         }
+
+        try {
+            sharedAudioElement.pause();
+            sharedAudioElement.currentTime = 0;
+        } catch (ignored) {
+            // Resetting an unloaded media element can throw on some browsers.
+        }
+
+        console.debug('[AUDIO] stopped; active session is now', audioSessionId);
     }
 
-    function playUrl(url) {
+    /** Starts and returns a new logical audio-session id. */
+    function beginSession() {
+        stop();
+        return audioSessionId;
+    }
+
+    /**
+     * Plays one URL on the persistent media element.
+     *
+     * @return Promise<boolean> true for a natural end, false when cancelled by
+     * a newer session.
+     */
+    function playUrl(url, sessionId) {
         return new Promise(function (resolve, reject) {
             if (!hasText(url)) {
-                resolve();
+                resolve(true);
                 return;
             }
 
-            /*
-             * Uploaded MP3s may be replaced while retaining the same filename
-             * (for example /uploads/walkup-intros/12.mp3). Add a fresh query
-             * value so the browser requests the new bytes immediately instead
-             * of replaying its cached copy.
-             */
+            if (sessionId !== audioSessionId) {
+                resolve(false);
+                return;
+            }
+
             const separator = String(url).includes('?') ? '&' : '?';
             const playbackUrl = String(url).startsWith('/uploads/')
                 ? String(url) + separator + 'v=' + Date.now()
                 : String(url);
 
-            const audio = new Audio(playbackUrl);
-            currentAudio = audio;
+            let settled = false;
 
-            audio.addEventListener('ended', function () {
-                resolve();
-            }, { once: true });
+            function cleanup() {
+                sharedAudioElement.removeEventListener('ended', onEnded);
+                sharedAudioElement.removeEventListener('error', onError);
+                if (cancelActivePlayback === cancelThisPlayback) {
+                    cancelActivePlayback = null;
+                }
+            }
 
-            audio.addEventListener('error', function () {
-                reject(new Error('Unable to play audio file: ' + url));
-            }, { once: true });
+            function finish(value) {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+                resolve(value);
+            }
 
-            const playPromise = audio.play();
+            function fail(error) {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+                reject(error);
+            }
+
+            function onEnded() {
+                finish(sessionId === audioSessionId);
+            }
+
+            function onError() {
+                fail(new Error('Unable to play audio file: ' + url));
+            }
+
+            function cancelThisPlayback() {
+                finish(false);
+            }
+
+            cancelActivePlayback = cancelThisPlayback;
+
+            sharedAudioElement.addEventListener('ended', onEnded);
+            sharedAudioElement.addEventListener('error', onError);
+            sharedAudioElement.src = playbackUrl;
+            sharedAudioElement.currentTime = 0;
+
+            console.debug('[AUDIO] play', {
+                sessionId: sessionId,
+                url: url
+            });
+
+            const playPromise = sharedAudioElement.play();
             if (playPromise && typeof playPromise.catch === 'function') {
-                playPromise.catch(function (error) {
-                    reject(error);
-                });
+                playPromise.catch(fail);
             }
         });
     }
 
     /**
-     * Plays one ordinary MP3, replacing any currently playing walk-up or break
-     * audio. Used for the between-at-bat playlist.
+     * Primes the persistent media element from the manager's direct checkbox
+     * gesture so later SSE-triggered playback is allowed on mobile browsers.
+     *
+     * The bundled unlock file is a real, very short silent MP3.
+     */
+    /**
+     * Primes the persistent Audio element during the checkbox user gesture.
+     *
+     * <p>Important: this method does NOT wait for the silent MP3 to finish.
+     * Mobile Chrome/iPadOS only needs play() to be accepted from the direct user
+     * gesture. Waiting for an "ended" event created a first-use race where the
+     * audio-target claim could remain blocked indefinitely.</p>
+     *
+     * <p>The returned promise always settles quickly. The caller is free to send
+     * the server-side audio-target claim immediately instead of waiting on it.</p>
+     */
+    function unlockForRemotePlayback() {
+        const sessionId = beginSession();
+
+        console.debug('[AUDIO] priming persistent audio element');
+
+        const separator = '/audio/audio-unlock.mp3'.includes('?') ? '&' : '?';
+        sharedAudioElement.src =
+            '/audio/audio-unlock.mp3' + separator + 'v=' + Date.now();
+        sharedAudioElement.currentTime = 0;
+
+        let playPromise;
+        try {
+            /*
+             * This call occurs synchronously inside the checkbox change gesture.
+             * That is the key action browsers use to grant later media playback.
+             */
+            playPromise = sharedAudioElement.play();
+        } catch (error) {
+            console.warn('[AUDIO] audio prime threw synchronously', error);
+            return Promise.resolve(false);
+        }
+
+        const acceptedPromise =
+            playPromise && typeof playPromise.then === 'function'
+                ? playPromise.then(function () {
+                    return true;
+                }).catch(function (error) {
+                    console.warn('[AUDIO] audio prime was rejected', error);
+                    return false;
+                })
+                : Promise.resolve(true);
+
+        /*
+         * Never let media priming hold the UI hostage. Some mobile browsers can
+         * leave a media promise unresolved while loading/suspending resources.
+         */
+        const timeoutPromise = new Promise(function (resolve) {
+            window.setTimeout(function () {
+                resolve(false);
+            }, 750);
+        });
+
+        return Promise.race([acceptedPromise, timeoutPromise])
+            .then(function (accepted) {
+                /*
+                 * Stop only our tiny prime clip. A newer real audio session may
+                 * already have started by the time this asynchronous cleanup runs.
+                 */
+                if (sessionId === audioSessionId) {
+                    try {
+                        sharedAudioElement.pause();
+                        sharedAudioElement.currentTime = 0;
+                    } catch (ignored) {
+                        // No action required.
+                    }
+                }
+
+                console.debug('[AUDIO] persistent audio prime finished', {
+                    accepted: accepted
+                });
+
+                return accepted;
+            });
+    }
+
+    /**
+     * Plays one ordinary MP3 as a new session. Used by the between-at-bat
+     * playlist. A later batter command cancels it cleanly.
      */
     async function playStandalone(url, message, statusElement) {
-        stop();
+        const sessionId = beginSession();
 
         if (!hasText(url)) {
-            return;
+            return false;
         }
 
         if (statusElement) {
@@ -88,13 +240,17 @@
         }
 
         try {
-            await playUrl(url);
-            if (statusElement) {
+            const completed = await playUrl(url, sessionId);
+
+            if (completed && sessionId === audioSessionId && statusElement) {
                 statusElement.textContent = 'Audio finished.';
             }
+
+            return completed;
         } catch (error) {
-            if (statusElement) {
-                statusElement.textContent = 'Audio was blocked or could not be played.';
+            if (sessionId === audioSessionId && statusElement) {
+                statusElement.textContent =
+                    'Audio was blocked or could not be played.';
             }
             throw error;
         }
@@ -115,7 +271,7 @@
     }
 
     async function playSequence(info, statusElement) {
-        stop();
+        const sessionId = beginSession();
 
         const sharedIntroUrl =
             info && info.sharedIntroPlayable
@@ -129,41 +285,61 @@
             info && info.playable
                 ? info.audioUrl
                 : null;
-        const playerName = info && info.playerName ? info.playerName : 'current batter';
+        const playerName =
+            info && info.playerName ? info.playerName : 'current batter';
         const label = songLabel(info);
 
         if (!sharedIntroUrl && !introUrl && !songUrl) {
             if (statusElement) {
-                statusElement.textContent = 'No intro or walk-up song uploaded for ' + playerName + '.';
+                statusElement.textContent =
+                    'No intro or walk-up song uploaded for ' + playerName + '.';
             }
-            return;
+            return false;
         }
 
         if (statusElement) {
-            statusElement.textContent = 'Playing audio for ' + playerName + (label ? ' (' + label + ')' : '') + '...';
+            statusElement.textContent =
+                'Playing audio for ' + playerName
+                + (label ? ' (' + label + ')' : '') + '...';
         }
 
+        console.debug('[AUDIO] batter sequence started', {
+            sessionId: sessionId,
+            playerName: playerName
+        });
+
         try {
-            // Three-stage sequence:
-            // 1. random shared intro chosen for the player's gender;
-            // 2. existing player-specific intro;
-            // 3. player's walk-up song.
-            if (sharedIntroUrl) {
-                await playUrl(sharedIntroUrl);
-            }
-            if (introUrl) {
-                await playUrl(introUrl);
-            }
-            if (songUrl) {
-                await playUrl(songUrl);
+            /*
+             * Every stage returns false when a newer session supersedes it.
+             * This is what prevents old between-at-bat or batter sequences from
+             * waking up and playing over the current audio.
+             */
+            if (sharedIntroUrl
+                    && !await playUrl(sharedIntroUrl, sessionId)) {
+                return false;
             }
 
-            if (statusElement) {
-                statusElement.textContent = 'Finished audio for ' + playerName + '.';
+            if (introUrl
+                    && !await playUrl(introUrl, sessionId)) {
+                return false;
             }
+
+            if (songUrl
+                    && !await playUrl(songUrl, sessionId)) {
+                return false;
+            }
+
+            if (sessionId === audioSessionId && statusElement) {
+                statusElement.textContent =
+                    'Finished audio for ' + playerName + '.';
+            }
+
+            return true;
         } catch (error) {
-            if (statusElement) {
-                statusElement.textContent = 'Audio was blocked or could not be played. Tap Play Current Batter Audio.';
+            if (sessionId === audioSessionId && statusElement) {
+                statusElement.textContent =
+                    'Audio was blocked or could not be played. '
+                    + 'Tap Play Current Batter Audio.';
             }
             throw error;
         }
@@ -277,15 +453,23 @@
                     }
 
                     try {
+                        const playLocally =
+                            window.ManagerAjax.shouldPlayAudioLocallyForThisAction();
+
+                        /*
+                         * If this browser owns shared audio, ignore the server's
+                         * equivalent SSE loopback and use the HTTP response
+                         * directly. This removes the first-use race entirely.
+                         */
+                        if (playLocally
+                                && window.ManagerAjax.hasDedicatedAudioTarget()) {
+                            window.ManagerAjax.suppressNextTargetedAudioCommand();
+                        }
+
                         const state =
                             await window.ManagerAjax.requestRoutedCurrentBatterAudio();
 
-                        /*
-                         * With a dedicated target, the server already sent the
-                         * enriched audio command through SSE. In default mode,
-                         * this browser plays the same freshly selected sequence.
-                         */
-                        if (!window.ManagerAjax.hasDedicatedAudioTarget()
+                        if (playLocally
                                 && state
                                 && state.currentBatter) {
                             await playSequence(
@@ -370,18 +554,30 @@
                 const context = window.ManagerAjax.currentContext();
 
                 try {
+                    const playLocally =
+                        window.ManagerAjax.shouldPlayAudioLocallyForThisAction();
+
+                    /*
+                     * When this browser is the selected audio target, stop any
+                     * field-change music immediately and suppress the server's
+                     * loopback stop/audio events. We then play the new batter
+                     * directly from the JSON response.
+                     */
+                    if (playLocally
+                            && window.ManagerAjax.hasDedicatedAudioTarget()) {
+                        stop();
+                        window.ManagerAjax.suppressNextAudioStop();
+                        window.ManagerAjax.suppressNextTargetedAudioCommand();
+                    }
+
                     const state = await window.ManagerAjax.postJson(endpoint, {
                         gameWeekId: context.gameWeekId,
                         teamId: context.managedTeamId,
                         deviceId: window.ManagerAjax.audioDeviceId()
                     });
 
-                    // The initiating browser plays only in default audio mode.
-                    // With a dedicated target, the server sends an SSE command
-                    // directly to the selected audio device.
                     window.ManagerAjax.applyState(state, {
-                        playAudio:
-                            !window.ManagerAjax.hasDedicatedAudioTarget()
+                        playAudio: playLocally
                     });
                 } catch (error) {
                     const message = error.message
@@ -521,6 +717,7 @@
 
     window.WalkupPlayer = {
         stop: stop,
+        unlockForRemotePlayback: unlockForRemotePlayback,
         playStandalone: playStandalone,
         playSequence: playSequence,
         updateCurrentBatterIndicator: updateCurrentBatterIndicator,

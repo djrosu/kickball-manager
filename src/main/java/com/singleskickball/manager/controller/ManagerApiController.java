@@ -229,6 +229,15 @@ public class ManagerApiController {
         // Play one alphabetical break song. Dedicated audio routing wins; when
         // none is selected, the device that clicked End At-Bat plays it.
         String songUrl = betweenAtBatSongService.nextSongUrl(week.getId());
+
+        /*
+         * Include the selected song in the direct HTTP response. If the device
+         * that clicked End At-Bat is also the selected audio controller, the
+         * browser can play this URL locally and ignore its equivalent SSE
+         * loopback. Other devices continue receiving the normal SSE event.
+         */
+        state.setBetweenAtBatAudioUrl(songUrl);
+
         liveUpdateService.publishBetweenAtBatSong(
                 week.getId(),
                 request.getDeviceId(),

@@ -49,12 +49,18 @@
          * when the rendered text is wider than the available banner width, so
          * short announcements stay centered and completely still.
          */
+        .announcement-stack {
+            display: grid;
+            gap: .55rem;
+            margin-bottom: 1rem;
+        }
+
         .announcement-banner {
             --announcement-bg: #d71920;
             --announcement-text: #ffffff;
             position: relative;
             width: 100%;
-            margin-bottom: 1rem;
+            margin-bottom: 0;
             overflow: hidden;
             border-radius: 10px;
             background: var(--announcement-bg);
@@ -116,22 +122,25 @@
     </nav>
 
     <!--
-      Scheduled homepage announcement. The service exposes only a banner whose
-      enabled/start/end rules make it active for today's date.
+      Render every currently active announcement. The service returns them
+      newest-start-date first, so the newest qualifying banner is on top.
     -->
-    <section class="announcement-banner"
-             th:if="${announcement != null}"
-             th:style="'--announcement-bg:' + ${announcement.backgroundColor} + ';--announcement-text:' + ${announcement.textColor} + ';'"
-             role="status"
-             aria-label="League announcement">
-        <div class="announcement-banner-viewport" data-announcement-viewport>
-            <span class="announcement-banner-text"
-                  data-announcement-text
-                  th:text="${announcement.message}">
-                League announcement
-            </span>
-        </div>
-    </section>
+    <div class="announcement-stack"
+         th:if="${announcements != null and !#lists.isEmpty(announcements)}"
+         aria-label="League announcements">
+        <section class="announcement-banner"
+                 th:each="announcement : ${announcements}"
+                 th:style="'--announcement-bg:' + ${announcement.backgroundColor} + ';--announcement-text:' + ${announcement.textColor} + ';'"
+                 role="status">
+            <div class="announcement-banner-viewport" data-announcement-viewport>
+                <span class="announcement-banner-text"
+                      data-announcement-text
+                      th:text="${announcement.message}">
+                    League announcement
+                </span>
+            </div>
+        </section>
+    </div>
 
     <!-- Flash feedback from profile and MP3 upload actions. -->
     <div class="success" th:if="${message}" th:text="${message}"></div>
@@ -282,23 +291,31 @@
 
 <script>
     /*
-     * Scroll the announcement only when its text is actually wider than the
-     * banner. Recalculate on resize so rotating a phone or resizing a browser
-     * starts/stops the marquee automatically.
+     * Measure every active banner independently. Short announcements remain
+     * centered and stationary; only messages wider than their banner viewport
+     * receive the scrolling animation.
      */
     (function () {
         'use strict';
 
-        const banner = document.querySelector('.announcement-banner');
-        const viewport = document.querySelector('[data-announcement-viewport]');
-        const text = document.querySelector('[data-announcement-text]');
+        const banners = Array.from(
+            document.querySelectorAll('.announcement-banner'));
 
-        if (!banner || !viewport || !text) {
+        if (banners.length === 0) {
             return;
         }
 
-        function updateAnnouncementScroll() {
-            // Measure the text without an active transform/animation.
+        function updateAnnouncementScroll(banner) {
+            const viewport =
+                banner.querySelector('[data-announcement-viewport]');
+            const text =
+                banner.querySelector('[data-announcement-text]');
+
+            if (!viewport || !text) {
+                return;
+            }
+
+            // Measure without an active animation/transform.
             banner.classList.remove('is-scrolling');
             text.style.removeProperty('--announcement-start-offset');
             text.style.removeProperty('--announcement-duration');
@@ -312,13 +329,13 @@
                 }
 
                 /*
-                 * Start just beyond the right edge and derive duration from the
-                 * total travel distance. This keeps the speed consistent for
-                 * both moderately long and very long announcements.
+                 * Derive duration from actual travel distance so all banners
+                 * scroll at approximately the same visual speed.
                  */
                 const travelPixels = viewportWidth + textWidth;
                 const pixelsPerSecond = 70;
-                const durationSeconds = Math.max(10, travelPixels / pixelsPerSecond);
+                const durationSeconds =
+                    Math.max(10, travelPixels / pixelsPerSecond);
 
                 text.style.setProperty(
                     '--announcement-start-offset',
@@ -330,8 +347,12 @@
             });
         }
 
-        updateAnnouncementScroll();
-        window.addEventListener('resize', updateAnnouncementScroll);
+        function updateAllAnnouncementScroll() {
+            banners.forEach(updateAnnouncementScroll);
+        }
+
+        updateAllAnnouncementScroll();
+        window.addEventListener('resize', updateAllAnnouncementScroll);
     })();
 </script>
 </body>

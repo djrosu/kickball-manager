@@ -22,6 +22,16 @@ public class ManagerDashboardState {
     private Long currentBattingTeamId;
     private String currentBattingTeamColor;
     private WalkUpSongInfo currentBatter;
+
+    /**
+     * First between-at-bat MP3 selected by an End At-Bat action.
+     *
+     * <p>This is populated only on that action's direct JSON response. It lets
+     * the browser that is BOTH the action initiator and selected audio target
+     * start the song locally instead of depending on an SSE loopback.</p>
+     */
+    private String betweenAtBatAudioUrl;
+
     private List<ScoreState> scores = new ArrayList<>();
     private List<TeamState> teams = new ArrayList<>();
     private List<PlayerOption> availablePlayers = new ArrayList<>();
@@ -44,6 +54,12 @@ public class ManagerDashboardState {
     public void setCurrentBattingTeamColor(String currentBattingTeamColor) { this.currentBattingTeamColor = currentBattingTeamColor; }
     public WalkUpSongInfo getCurrentBatter() { return currentBatter; }
     public void setCurrentBatter(WalkUpSongInfo currentBatter) { this.currentBatter = currentBatter; }
+
+    public String getBetweenAtBatAudioUrl() { return betweenAtBatAudioUrl; }
+    public void setBetweenAtBatAudioUrl(String betweenAtBatAudioUrl) {
+        this.betweenAtBatAudioUrl = betweenAtBatAudioUrl;
+    }
+
     public List<ScoreState> getScores() { return scores; }
     public void setScores(List<ScoreState> scores) { this.scores = scores; }
     public List<TeamState> getTeams() { return teams; }
