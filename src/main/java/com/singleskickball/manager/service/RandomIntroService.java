@@ -14,15 +14,14 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Deque;
-import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
@@ -37,20 +36,20 @@ import java.util.stream.Stream;
  *
  * <h2>Per-game playback sequence</h2>
  *
- * <p>At game start, this service creates shuffled in-memory "decks" of eligible
- * intro clips. A batter receives the next clip from the appropriate deck rather
- * than a completely independent random selection. This provides two important
- * behaviors:</p>
+ * <p>At game start, this service takes one snapshot of the complete intro
+ * collection, shuffles it once, and then walks through that single randomized
+ * order for the entire game. Gender eligibility is respected by skipping clips
+ * that do not apply to the current batter.</p>
  *
- * <ul>
- *   <li>Every eligible clip is used before that eligibility group repeats.</li>
- *   <li>The same clip is not played back-to-back when another eligible choice
- *       exists, even when consecutive batters have different genders.</li>
- * </ul>
+ * <p>This is intentionally a <strong>global</strong> game sequence rather than
+ * separate male/female decks. A unisex clip that was just used for a male batter
+ * is therefore considered used when a female batter comes up, which prevents the
+ * same small group of unisex clips from appearing over and over.</p>
  *
- * <p>When a deck is exhausted, it is reshuffled for another cycle. The sequence
- * is temporary game-session state and intentionally is not stored in the
- * database.</p>
+ * <p>When the current batter has no unused eligible clips left, a new shuffled
+ * cycle is created. Immediate repeats are avoided whenever another eligible clip
+ * exists. The sequence is temporary game-session state and intentionally is not
+ * stored in the database.</p>
  */
 @Service
 public class RandomIntroService {
@@ -392,111 +391,158 @@ public class RandomIntroService {
     }
 
     /**
-     * Shuffled, per-game playback state.
+     * One shuffled, global intro order for a game.
      *
-     * <p>Each eligibility group has its own deck so male-only and female-only
-     * clips are not consumed by ineligible batters. A single last-played value
-     * spans all groups and prevents immediate duplication of a unisex clip when
-     * consecutive batters use different decks.</p>
+     * <p>The old implementation maintained separate male/female/unisex decks.
+     * That allowed the same unisex clip to be consumed independently by more
+     * than one deck, which made some intros sound much more frequent than they
+     * really were. This implementation keeps a single used set across every
+     * batter in the game.</p>
      */
     private static final class GameIntroSequence {
 
         private final List<RandomIntroRow> sourceCollection;
-        private final Map<EligibilityGroup, Deque<RandomIntroRow>> decks =
-                new EnumMap<>(EligibilityGroup.class);
 
+        /** Current shuffled order for this cycle. */
+        private List<RandomIntroRow> shuffledOrder;
+
+        /** Filenames already played during the current cycle. */
+        private final Set<String> usedThisCycle = new HashSet<>();
+
+        /**
+         * Where the next eligibility search begins. Keeping a cursor means the
+         * game follows the randomized order rather than choosing independently
+         * for every batter.
+         */
+        private int cursor = 0;
+
+        /** Most recently played clip, used to prevent immediate repetition. */
         private String lastPlayedFilename;
 
         private GameIntroSequence(List<RandomIntroRow> collection) {
             this.sourceCollection = List.copyOf(collection);
-            for (EligibilityGroup group : EligibilityGroup.values()) {
-                decks.put(group, buildDeck(group));
-            }
+            reshuffleForNewCycle();
         }
 
         /**
-         * Thread-safe because two manager devices can request batter audio at
-         * nearly the same moment.
+         * Returns the next unused eligible intro in the game's randomized order.
+         *
+         * <p>This method is synchronized because two manager devices can request
+         * batter audio at nearly the same time.</p>
          */
         private synchronized RandomIntroRow nextFor(Gender gender) {
-            EligibilityGroup group = EligibilityGroup.forGender(gender);
-            Deque<RandomIntroRow> deck = decks.get(group);
-
-            if (deck == null || deck.isEmpty()) {
-                deck = buildDeck(group);
-                decks.put(group, deck);
-            }
-
-            if (deck.isEmpty()) {
+            if (sourceCollection.isEmpty()) {
                 return null;
             }
 
-            /*
-             * When possible, avoid replaying the same clip immediately across
-             * gender decks. Move the duplicate to the back and use another clip.
-             */
-            if (deck.size() > 1
-                    && lastPlayedFilename != null
-                    && lastPlayedFilename.equals(deck.peekFirst().filename())) {
-                deck.addLast(deck.removeFirst());
+            RandomIntroRow selected = findNextUnusedEligible(gender);
+
+            if (selected == null) {
+                /*
+                 * Every clip eligible for this batter has already been used in
+                 * the current cycle. Start a fresh randomized cycle.
+                 */
+                reshuffleForNewCycle();
+                selected = findNextUnusedEligible(gender);
             }
 
-            RandomIntroRow selected = deck.removeFirst();
+            if (selected == null) {
+                // There are simply no clips eligible for this player's gender.
+                return null;
+            }
+
+            usedThisCycle.add(selected.filename());
             lastPlayedFilename = selected.filename();
             return selected;
         }
 
-        private Deque<RandomIntroRow> buildDeck(EligibilityGroup group) {
-            List<RandomIntroRow> eligible = sourceCollection.stream()
-                    .filter(row -> group.accepts(row))
-                    .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+        /**
+         * Searches forward from the current cursor through one complete pass of
+         * the shuffled collection.
+         */
+        private RandomIntroRow findNextUnusedEligible(Gender gender) {
+            int size = shuffledOrder.size();
+            if (size == 0) {
+                return null;
+            }
 
-            Collections.shuffle(eligible);
+            for (int offset = 0; offset < size; offset++) {
+                int index = (cursor + offset) % size;
+                RandomIntroRow candidate = shuffledOrder.get(index);
 
-            /*
-             * When beginning a new cycle, avoid putting the previous cycle's
-             * final clip first if another choice exists.
-             */
-            if (eligible.size() > 1
+                if (usedThisCycle.contains(candidate.filename())) {
+                    continue;
+                }
+
+                if (!RandomIntroService.isEligible(candidate, gender)) {
+                    continue;
+                }
+
+                /*
+                 * Avoid an immediate duplicate when another unused eligible
+                 * choice still exists later in the sequence.
+                 */
+                if (lastPlayedFilename != null
+                        && lastPlayedFilename.equals(candidate.filename())
+                        && hasAlternativeEligible(gender, index)) {
+                    continue;
+                }
+
+                cursor = (index + 1) % size;
+                return candidate;
+            }
+
+            return null;
+        }
+
+        /**
+         * Returns true when a different unused eligible clip is available.
+         */
+        private boolean hasAlternativeEligible(Gender gender, int excludedIndex) {
+            for (int index = 0; index < shuffledOrder.size(); index++) {
+                if (index == excludedIndex) {
+                    continue;
+                }
+
+                RandomIntroRow candidate = shuffledOrder.get(index);
+                if (usedThisCycle.contains(candidate.filename())) {
+                    continue;
+                }
+
+                if (lastPlayedFilename != null
+                        && lastPlayedFilename.equals(candidate.filename())) {
+                    continue;
+                }
+
+                if (RandomIntroService.isEligible(candidate, gender)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /**
+         * Creates the next randomized cycle.
+         *
+         * <p>If possible, the first eligible clip of the new cycle will not be
+         * the same file that ended the previous cycle. The exact batter gender
+         * is not known here, so the nextFor(...) eligibility check provides the
+         * final protection against a back-to-back repeat.</p>
+         */
+        private void reshuffleForNewCycle() {
+            shuffledOrder = new ArrayList<>(sourceCollection);
+            Collections.shuffle(shuffledOrder);
+            usedThisCycle.clear();
+            cursor = 0;
+
+            if (shuffledOrder.size() > 1
                     && lastPlayedFilename != null
-                    && lastPlayedFilename.equals(eligible.get(0).filename())) {
-                Collections.swap(eligible, 0, 1);
+                    && lastPlayedFilename.equals(
+                            shuffledOrder.get(0).filename())) {
+                Collections.swap(shuffledOrder, 0, 1);
             }
-
-            return new ArrayDeque<>(eligible);
         }
     }
 
-    private enum EligibilityGroup {
-        MALE {
-            @Override
-            boolean accepts(RandomIntroRow row) {
-                return row.male();
-            }
-        },
-        FEMALE {
-            @Override
-            boolean accepts(RandomIntroRow row) {
-                return row.female();
-            }
-        },
-        UNISEX {
-            @Override
-            boolean accepts(RandomIntroRow row) {
-                return row.male() && row.female();
-            }
-        };
-
-        abstract boolean accepts(RandomIntroRow row);
-
-        static EligibilityGroup forGender(Gender gender) {
-            if (gender == Gender.MALE) {
-                return MALE;
-            }
-            if (gender == Gender.FEMALE) {
-                return FEMALE;
-            }
-            return UNISEX;
-        }
-    }
 }
